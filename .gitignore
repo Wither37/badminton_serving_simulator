@@ -1,0 +1,39 @@
+# --- Python Virtual Environments ---
+# Ignore the .venv folder at the project root
+/.venv/
+.env/
+env/
+venv/
+*_env/
+
+# --- Python Bytecode and Cache ---
+# Ignore __pycache__ directories at any level
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Distribution / Packaging ---
+build/
+dist/
+sdist/
+*.egg-info/
+*.egg
+*.whl
+
+# --- Jupyter Notebook Checkpoints ---
+# For files like your emulator.ipynb
+.ipynb_checkpoints/
+
+# --- IDE / Editor Files ---
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# --- OS-specific files ---
+.DS_Store
+Thumbs.db
+
+# --- Project-specific ---
+# From your directory tree
+/history/
