@@ -165,12 +165,11 @@ def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
                             hit_points[h] = {'x': hit_x, 'y': hit_y}
 
     # always store the final landing point
-    if landing and step_counter % trail_sample_step == 0:
-        pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
-    
-    # ???
-    # if landing:
+    # if landing and step_counter % trail_sample_step == 0:
     #     pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
+    
+    if landing:
+        pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
 
     result = {"points": pts, "apex": apex, "cross_net": cross_net, "landing": landing, "hit_net": hit_net}
     if refine_heights:
