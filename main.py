@@ -441,6 +441,7 @@ def display_return_view(view_id):
             marker = Entity(model='sphere', scale=0.15, color=preset['color'],
                             position=(land['y'], 0.05, land['x']))
             return_entities.append(marker)
+            #這樣會不會重複標記最後一個落地點trial和marker都有
 
             # Label
             label = Text(text=str(i+1) if view_id == '0' else "", scale=2,
