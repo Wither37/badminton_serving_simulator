@@ -36,27 +36,20 @@ LINE_THICKNESS = 0.04           # 40mm
 LINE_Y_OFFSET  = 0.02          # To prevent z-fighting (flickering)
 
 # ----- Trail sampling (reduce lag) -----
-TRAIL_SAMPLE_STEP = 10          # Increased to 10 to reduce dots (every 10th point, ≈0.05s with dt=0.005)
-
 TRAIL_DT          = 0.01       # larger physics step for preview
 
 # ----- 2) 物理模擬參數 (Physics) -----
 G = 9.81
 DRAG_K = 0.2           # Your drag coefficient
-release_height = 1.2    # Your release height
+RELEASE_HEIGHT = 1.2    # Your release height
 
-# Standalone trajectory simulation
+# Standalone trajectory simulation (MODIFIED: Reactive refinement; no predictive adaptive dt)
 def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
-                        drag_k=DRAG_K, release_height=1.2,
+                        drag_k=DRAG_K,
                         dt_base=0.01, dt_fine=0.001,
                         refine_net=False, refine_heights=False,
                         refine_heights_list=[0.7, 1.8, 2.5],
-                        refine_window=0.5,  # m, anticipation window for regions
-                        max_t=6.0, start_x=0.0, start_y=0.0, start_z=None,
-                        trail_sample_step=TRAIL_SAMPLE_STEP):
-
-    if start_z is None:
-        start_z = release_height
+                        max_t=6.0, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
 
     yaw   = radians(yaw_deg)
     pitch = radians(pitch_deg)
@@ -68,76 +61,148 @@ def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
     x, y, z = start_x, start_y, start_z
     t = 0.0
 
-    pts   = []
+    pts   = []  # Always store every point for pre-computation
     apex  = {"x": x, "y": y, "z": z, "t": t}
     cross_net = None
     landing   = None
     prev = None
-    step_counter = 0
     hit_net = False
     hit_points = {} if refine_heights else None  # Dict to store hit points {height: {'x': hit_x, 'y': hit_y}}
 
     def lerp(a, b, w): return a + w * (b - a)
 
     while t <= max_t and z >= 0.0:
-        # Adaptive dt: default to base, refine if in region
-        dt = dt_base
-        if refine_net and abs(x - NET_X) < refine_window:
-            dt = dt_fine
-        if refine_heights and vz < 0:
-            for h in refine_heights_list:
-                if abs(z - h) < refine_window:
-                    dt = dt_fine
-                    break
-
-        # ----- store point only when drawing preview -----
-        if step_counter % trail_sample_step == 0:
-            pts.append((x, y, z, vx, vy, vz, t))
+        # ----- store every point -----
+        pts.append((x, y, z, vx, vy, vz, t))
 
         if z > apex["z"]:
             apex = {"x": x, "y": y, "z": z, "t": t}
 
         prev = (x, y, z, vx, vy, vz, t)
 
-        # ----- physics -----
+        # ----- physics (always coarse dt) -----
         vmag = sqrt(vx*vx + vy*vy + vz*vz)
         ax = -drag_k * vmag * vx
         ay = -drag_k * vmag * vy
         az = -G - drag_k * vmag * vz
 
-        vx += ax * dt
-        vy += ay * dt
-        vz += az * dt
-        x  += vx * dt
-        y  += vy * dt
-        z  += vz * dt
-        t  += dt
-        step_counter += 1
+        vx += ax * dt_base
+        vy += ay * dt_base
+        vz += az * dt_base
+        x  += vx * dt_base
+        y  += vy * dt_base
+        z  += vz * dt_base
+        t  += dt_base
 
         # net crossing
         w_net = None
         if prev and (prev[0] - NET_X) * (x - NET_X) <= 0 and x != prev[0]:
             w_net = (NET_X - prev[0]) / (x - prev[0])
-        if w_net is not None and 0 <= w_net <= 1:
-            cross_z = lerp(prev[2], z, w_net)
-            clearance = cross_z - NET_H
-            cross_net = {
-                "x": NET_X,
-                "y": lerp(prev[1], y, w_net),
-                "z": cross_z,
-                "t": lerp(prev[6], t, w_net),
-                "clearance": clearance
-            }
-            if clearance <= 0 and cross_z > 0 and not hit_net:
-                hit_net = True
-                # Hit: set to crossing point, cap z at NET_H, drop straight down
-                x = NET_X
-                y = lerp(prev[1], y, w_net)
-                z = min(cross_z, NET_H)
-                vx = 0
-                vy = 0
-                # vz keeps (gravity pulls down)
-                # print(f"[SIM] Net hit at z={z:.2f}m")
+            if refine_net:
+                # Reactive refinement: Subdivide the step for accuracy
+                temp_x, temp_y, temp_z = prev[0], prev[1], prev[2]
+                temp_vx, temp_vy, temp_vz = prev[3], prev[4], prev[5]
+                temp_t = prev[6]
+                fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
+                crossed = False
+                while not crossed and temp_t < prev[6] + dt_base:
+                    vmag = sqrt(temp_vx**2 + temp_vy**2 + temp_vz**2)
+                    ax = -drag_k * vmag * temp_vx
+                    ay = -drag_k * vmag * temp_vy
+                    az = -G - drag_k * vmag * temp_vz
+                    temp_vx += ax * dt_fine
+                    temp_vy += ay * dt_fine
+                    temp_vz += az * dt_fine
+                    temp_x += temp_vx * dt_fine
+                    temp_y += temp_vy * dt_fine
+                    temp_z += temp_vz * dt_fine
+                    temp_t += dt_fine
+                    if (fine_prev[0] - NET_X) * (temp_x - NET_X) <= 0 and temp_x != fine_prev[0]:
+                        w_net = (NET_X - fine_prev[0]) / (temp_x - fine_prev[0])
+                        cross_z = lerp(fine_prev[2], temp_z, w_net)
+                        cross_y = lerp(fine_prev[1], temp_y, w_net)
+                        cross_t = lerp(fine_prev[6], temp_t, w_net)
+                        clearance = cross_z - NET_H
+                        cross_net = {
+                            "x": NET_X,
+                            "y": cross_y,
+                            "z": cross_z,
+                            "t": cross_t,
+                            "clearance": clearance
+                        }
+                        if clearance <= 0 and cross_z > 0 and not hit_net:
+                            hit_net = True
+                            x = NET_X
+                            y = cross_y
+                            z = min(cross_z, NET_H)
+                            vx = 0
+                            vy = 0
+                            t = cross_t
+                            # vz remains temp_vz
+                        crossed = True
+                    fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
+                # Update main state to fine end for better accuracy post-crossing
+                x, y, z, vx, vy, vz, t = temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t
+            else:
+                cross_z = lerp(prev[2], z, w_net)
+                clearance = cross_z - NET_H
+                cross_net = {
+                    "x": NET_X,
+                    "y": lerp(prev[1], y, w_net),
+                    "z": cross_z,
+                    "t": lerp(prev[6], t, w_net),
+                    "clearance": clearance
+                }
+                if clearance <= 0 and cross_z > 0 and not hit_net:
+                    hit_net = True
+                    x = NET_X
+                    y = lerp(prev[1], y, w_net)
+                    z = min(cross_z, NET_H)
+                    vx = 0
+                    vy = 0
+                    # vz keeps
+
+        # Compute hit points at heights during descent (if flag set)
+        if refine_heights and prev and vz < 0:
+            for h in refine_heights_list:
+                if h not in hit_points and prev[2] >= h >= z:  # Crossed h downward
+                    w_h = (h - prev[2]) / (z - prev[2])
+                    if refine_heights:
+                        # Reactive refinement: Subdivide the step for accuracy
+                        temp_x, temp_y, temp_z = prev[0], prev[1], prev[2]
+                        temp_vx, temp_vy, temp_vz = prev[3], prev[4], prev[5]
+                        temp_t = prev[6]
+                        fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
+                        crossed_h = False
+                        while not crossed_h and temp_t < prev[6] + dt_base:
+                            vmag = sqrt(temp_vx**2 + temp_vy**2 + temp_vz**2)
+                            ax = -drag_k * vmag * temp_vx
+                            ay = -drag_k * vmag * temp_vy
+                            az = -G - drag_k * vmag * temp_vz
+                            temp_vx += ax * dt_fine
+                            temp_vy += ay * dt_fine
+                            temp_vz += az * dt_fine
+                            temp_x += temp_vx * dt_fine
+                            temp_y += temp_vy * dt_fine
+                            temp_z += temp_vz * dt_fine
+                            temp_t += dt_fine
+                            if fine_prev[2] >= h >= temp_z:
+                                w_h = (h - fine_prev[2]) / (temp_z - fine_prev[2])
+                                hit_x = lerp(fine_prev[0], temp_x, w_h)
+                                hit_y = lerp(fine_prev[1], temp_y, w_h)
+                                # Check bounds
+                                if hit_x > NET_X and abs(hit_y) <= HALF_W:
+                                    hit_points[h] = {'x': hit_x, 'y': hit_y}
+                                crossed_h = True
+                            fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
+                        # Update main state to fine end for better accuracy post-crossing
+                        x, y, z, vx, vy, vz, t = temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t
+                    else:
+                        hit_x = lerp(prev[0], x, w_h)
+                        hit_y = lerp(prev[1], y, w_h)
+                        # Check bounds
+                        if hit_x > NET_X and abs(hit_y) <= HALF_W:
+                            hit_points[h] = {'x': hit_x, 'y': hit_y}
 
         # ground landing
         w_land = None
@@ -152,22 +217,6 @@ def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
             }
             break
 
-        # Compute hit points at heights during descent (if flag set)
-        if refine_heights and prev and vz < 0:
-            for h in refine_heights_list:
-                if h not in hit_points and prev[2] >= h >= z:  # Crossed h downward
-                    w_h = (h - prev[2]) / (z - prev[2])
-                    if 0 <= w_h <= 1:
-                        hit_x = lerp(prev[0], x, w_h)
-                        hit_y = lerp(prev[1], y, w_h)
-                        # Check bounds
-                        if hit_x > NET_X and abs(hit_y) <= HALF_W:
-                            hit_points[h] = {'x': hit_x, 'y': hit_y}
-
-    # always store the final landing point
-    # if landing and step_counter % trail_sample_step == 0:
-    #     pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
-    
     if landing:
         pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
 
@@ -251,25 +300,21 @@ def find_fastest_clearing_shot(
 
         # ----- If this pitch gave a valid speed, compare with global best -----
     if best_pitch is not None and best_speed is not None:
-        # Re-simulate at the best speed for this pitch
+        # Re-simulate at the best speed for this pitch (use refine for accuracy)
         sim = simulate_trajectory(
             best_speed, yaw_deg, best_pitch,
             start_x=start_x, start_y=start_y, start_z=start_z,
-            dt_base=0.001,
-            refine_net=False, refine_heights=False,
+            dt_base=0.01,
+            refine_net=True, refine_heights=False,
         )
         clear = sim['cross_net']['clearance']
-        print(f"speed={best_speed} m/s, pitch={best_pitch}°, land={sim['landing']['x']}m, " +
-              f"Δx={abs(sim['landing']['x']-target_x)}m, net={clear}m")
+        # print(f"speed={best_speed} m/s, pitch={best_pitch}°, land={sim['landing']['x']}m, " +
+        #       f"Δx={abs(sim['landing']['x']-target_x)}m, net={clear}m")
         return best_speed, best_pitch, sim
     return None, None, None
 
-# This dictionary will hold the physics state of the ball
-sim_state = {
-    'x': 0.0, 'y': 0.0, 'z': release_height,  # Position (user's coordinate system)
-    'vx': 0.0, 'vy': 0.0, 'vz': 0.0, # Velocity
-    'running': False
-}
+# NEW: Global for pre-computed trajectory points
+trajectory_points = []
 
 # Current launch parameters (updated via MQTT)
 current_speed = 30.0        # m/s
@@ -292,11 +337,10 @@ return_options = []
 is_return_flight = False
 solutions_ready = False
 trail_timer = 0.0
-trail_interval = 0.01  # seconds between trail dots for serve/animation
+trail_interval = 0.001  # seconds between trail dots for serve/animation
 
-# Fixed timestep for physics alignment
-accumulator = 0.0
-fixed_dt = 0.001
+# NEW: Simulation time for real-time playback
+simulation_time = 0.0
 
 # Define return presets
 heights = [0.7, 1.8, 2.5]
@@ -304,7 +348,7 @@ locations_1 = ['left', 'mid', 'right']
 locations_2 = ['front', 'mid', 'back']
 targets_x = [5.90, 3.35, 0.76]  # front, mid, back on machine side
 target_ys = [-(SINGLES_HALF_W - 0.5), 0, (SINGLES_HALF_W - 0.5)]  # left, mid, right, inset by 0.5m
-colors = [color.red, color.yellow, color.blue]
+colors = [color.cyan, color.lime, color.orange]
 
 return_presets = []
 for i in range(3):
@@ -336,14 +380,12 @@ def compute_return_solutions():
         speed_mps=current_speed,
         yaw_deg=current_yaw,
         pitch_deg=current_pitch,
-        release_height=release_height,
         refine_net=True, refine_heights=True,
         refine_heights_list=heights,
         max_t=6.0,
         start_x=0.0,
         start_y=0.0,
-        start_z=release_height,
-        trail_sample_step=1
+        start_z=RELEASE_HEIGHT,
     )
     apex_z = serve_sim['apex']['z']
     hit_points = serve_sim.get('hit_points', {})
@@ -390,7 +432,7 @@ def compute_return_solutions():
 
 def display_return_view(view_id):
     """Show only the selected return (or all). Clears previous."""
-    global return_entities, return_options, current_return_view, return_info_text, is_return_flight, trail_timer
+    global return_entities, return_options, current_return_view, return_info_text, is_return_flight, trail_timer, simulation_time, trajectory_points
 
     clear_return_entities()
     return_info_text.visible = True
@@ -441,7 +483,6 @@ def display_return_view(view_id):
             marker = Entity(model='sphere', scale=0.15, color=preset['color'],
                             position=(land['y'], 0.05, land['x']))
             return_entities.append(marker)
-            #這樣會不會重複標記最後一個落地點trial和marker都有
 
             # Label
             label = Text(text=str(i+1) if view_id == '0' else "", scale=2,
@@ -450,7 +491,7 @@ def display_return_view(view_id):
 
             return_options.append((i, preset))
     else:
-        # Animate single return
+        # Animate single return (MODIFIED: Use pre-computed points for animation)
         if target_preset:
             sol = target_preset['solution']
             if sol:
@@ -464,34 +505,27 @@ def display_return_view(view_id):
                     destroy(e)
                 return_trails.clear()
                 trail_timer = 0.0  # Reset timer
-                reset_simulation(speed, yaw_deg, pitch, start_x=hit_point['x'], start_y=hit_point['y'], start_z=h)
+                simulation_time = 0.0  # Reset simulation time
+                # Pre-compute trajectory for this return
+                sim = simulate_trajectory(speed, yaw_deg, pitch, start_x=hit_point['x'], start_y=hit_point['y'], start_z=h)
+                trajectory_points = sim['points']  # Store pre-computed points
+                ball.position = (hit_point['y'], h, hit_point['x'])  # Start position (Ursina: y, z, x -> x, y, z)
                 ball.color = target_preset['color']  # Color ball for return
 
-def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=release_height):
-    """(Re)initializes the ball's physics state with given parameters."""
-    global trail_timer, accumulator
+def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+    """(Re)initializes the ball using pre-computed trajectory."""
+    global trajectory_points, simulation_time, trail_timer
     
-    # Set initial position
-    sim_state['x'] = start_x
-    sim_state['y'] = start_y
-    sim_state['z'] = start_z
+    # Pre-compute the full trajectory
+    sim = simulate_trajectory(speed_mps, yaw_deg, pitch_deg, start_x=start_x, start_y=start_y, start_z=start_z)
+    trajectory_points = sim['points']
     
-    # Calculate initial velocities (from your simulate_trajectory)
-    yaw   = radians(yaw_deg)
-    pitch = radians(pitch_deg)
-    
-    sim_state['vx'] = speed_mps * cos(pitch) * cos(yaw)
-    sim_state['vy'] = speed_mps * cos(pitch) * sin(yaw)
-    sim_state['vz'] = speed_mps * sin(pitch)
-    
-    # Set the 3D ball to the start position
-    # **Coordinate Mapping: (User's [x,y,z] -> Ursina's [z,x,y])**
-    ball.position = (sim_state['y'], sim_state['z'], sim_state['x'])
+    # Set initial position (Ursina: user's y, z, x)
+    ball.position = (start_y, start_z, start_x)
     ball.color = color.yellow
-            
-    sim_state['running'] = True
+    
+    simulation_time = 0.0
     trail_timer = 0.0
-    accumulator = 0.0
     print(f"Simulation Started with speed={speed_mps}, yaw={yaw_deg}, pitch={pitch_deg} from ({start_x}, {start_y}, {start_z})")
 
 # ----- 3) Ursina 3D App Setup -----
@@ -579,7 +613,7 @@ add_line_z_segment(0, Z_SHORT_SERVICE_FAR, Z_BASELINE_FAR)
 
 # ----- 5) Entities & Player -----
 # Create the ball
-ball = Entity(model='sphere', position=(0, release_height, 0), color=color.yellow, scale=0.15)
+ball = Entity(model='sphere', position=(0, RELEASE_HEIGHT, 0), color=color.yellow, scale=0.15)
 
 # Add landing text UI
 landing_text = Text(position=window.top_left + Vec2(0.05, -0.05), text='', scale=1.0, background=True)
@@ -628,13 +662,13 @@ return_info_text = Text("", position=(0.4, 0.4), scale=1.2, color=color.white, v
 def update_instructions():
     instructions_text.text = get_instructions_text()
 
-# ----- 6) The Animation Loop -----
-
+# ----- 6) The Animation Loop (MODIFIED: Use pre-computed points with real-time interpolation) -----
 def update():
     global current_speed, current_yaw, current_pitch
-    global last_landing, is_return_flight, show_returns, current_return_view, solutions_ready, trail_timer, accumulator
+    global last_landing, is_return_flight, show_returns, current_return_view, solutions_ready, trail_timer, simulation_time
+    global trajectory_points
 
-    if not sim_state['running']:
+    if not trajectory_points:  # No active simulation
         if auto_serve:
             try:
                 params = serve_queue.get_nowait()
@@ -653,62 +687,29 @@ def update():
                 pass
         return
 
-    accumulator += time.dt
+    # Advance simulation time
+    simulation_time += time.dt
 
-    while accumulator >= fixed_dt and sim_state['running']:
-        prev_x = sim_state['x']
-        prev_y = sim_state['y']
-        prev_z = sim_state['z']
-        vx = sim_state['vx']
-        vy = sim_state['vy']
-        vz = sim_state['vz']
-
-        vmag = sqrt(vx*vx + vy*vy + vz*vz)
-        ax = -DRAG_K * vmag * vx
-        ay = -DRAG_K * vmag * vy
-        az = -G - DRAG_K * vmag * vz
-
-        vx += ax * fixed_dt
-        vy += ay * fixed_dt
-        vz += az * fixed_dt
-        x  = sim_state['x'] + vx * fixed_dt
-        y  = sim_state['y'] + vy * fixed_dt
-        z  = sim_state['z'] + vz * fixed_dt
-
-        # Check for net hit
-        if (prev_x - NET_X) * (x - NET_X) <= 0 and x != prev_x:
-            w_net = (NET_X - prev_x) / (x - prev_x)
-            if 0 <= w_net <= 1:
-                cross_z = prev_z + w_net * (z - prev_z)
-                clearance = cross_z - NET_H
-                if clearance <= 0 and cross_z > 0:
-                    # Hit net: drop straight down
-                    x = NET_X
-                    y = prev_y + w_net * (y - prev_y)
-                    z = min(cross_z, NET_H)
-                    vx = 0
-                    vy = 0
-                    # vz keeps
-                    print(f"[UPDATE] Net hit at z={z:.2f}m")
-
-        # Check for ground landing with interpolation
-        if prev_z > 0 and z <= 0:
-            w_land = (0 - prev_z) / (z - prev_z)
-            x = prev_x + w_land * (x - prev_x)
-            y = prev_y + w_land * (y - prev_y)
-            z = 0
-            vx = 0
-            vy = 0
-            vz = 0
-            print(f"[UPDATE] Landed at (x={x:.2f}, y={y:.2f})")
-
-        sim_state.update({'x': x, 'y': y, 'z': z, 'vx': vx, 'vy': vy, 'vz': vz})
-        accumulator -= fixed_dt
-
-        if z <= 0:
+    # Find the current segment in pre-computed points
+    for i in range(len(trajectory_points) - 1):
+        curr_t = trajectory_points[i][6]
+        next_t = trajectory_points[i + 1][6]
+        if curr_t <= simulation_time < next_t:
+            frac = (simulation_time - curr_t) / (next_t - curr_t)
+            curr_pos = trajectory_points[i]
+            next_pos = trajectory_points[i + 1]
+            # Lerp position (x, y, z)
+            x = curr_pos[0] + frac * (next_pos[0] - curr_pos[0])
+            y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
+            z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
+            # Set ball position (Ursina: y, z, x)
+            ball.position = (y, z, x)
             break
-
-    ball.position = (sim_state['y'], sim_state['z'], sim_state['x'])
+    else:
+        # Beyond last point: Set to final landing and stop
+        final_pos = trajectory_points[-1]
+        ball.position = (final_pos[1], final_pos[2], final_pos[0])
+        trajectory_points = []  # End simulation
 
     if show_trajectory:
         trail_timer += time.dt
@@ -721,18 +722,15 @@ def update():
             trail_timer -= trail_interval
 
     # === ONLY SERVE (not return) triggers landing logic ===
-    if sim_state['z'] <= 0 and not is_return_flight:
-        sim_state['running'] = False
-        sim_state['z'] = 0
-        ball.position = (sim_state['y'], 0, sim_state['x'])
+    if not trajectory_points and not is_return_flight:  # Simulation ended
         ball.color = color.red
-        print(f"Landed at (x={sim_state['x']:.2f}, y={sim_state['y']:.2f})")
+        print(f"Landed at (x={ball.z:.2f}, y={ball.x:.2f})")  # Ursina z = user's x, x = user's y
 
-        last_landing = {'x': sim_state['x'], 'y': sim_state['y']}
-        landings.append({'pos': (sim_state['x'], sim_state['y']), 'params': (current_speed, current_yaw, current_pitch)})
+        last_landing = {'x': ball.z, 'y': ball.x}
+        landings.append({'pos': (ball.z, ball.x), 'params': (current_speed, current_yaw, current_pitch)})
         update_landing_text()
 
-        marker = Entity(model='sphere', scale=0.1, color=color.blue, position=(sim_state['y'], 0.05, sim_state['x']))
+        marker = Entity(model='sphere', scale=0.1, color=color.blue, position=(ball.x, 0.05, ball.z))
         landing_markers.append(marker)
 
         simulator.client.publish(simulator.status_topic, "serve=done")
@@ -747,16 +745,13 @@ def update():
             display_return_view(current_return_view)
 
     # === RETURN FLIGHT: Just animate ===
-    elif sim_state['z'] <= 0 and is_return_flight:
-        sim_state['running'] = False
-        sim_state['z'] = 0
-        ball.position = (sim_state['y'], 0, sim_state['x'])
+    elif not trajectory_points and is_return_flight:
         ball.color = color.red
         is_return_flight = False
         # DO NOT compute solutions here!
 
 def input(key):
-    global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, is_return_flight
+    global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, is_return_flight, simulation_time, trajectory_points
 
     if key == 'q':
         application.quit()
@@ -770,12 +765,10 @@ def input(key):
         return_entities.clear()
         landings.clear()
         update_landing_text()
-        ball.position = (0, release_height, 0)
+        ball.position = (0, RELEASE_HEIGHT, 0)
         ball.color = color.yellow
-        sim_state['running'] = False
-        sim_state['x'] = sim_state['y'] = 0
-        sim_state['z'] = release_height
-        sim_state['vx'] = sim_state['vy'] = sim_state['vz'] = 0
+        trajectory_points = []
+        simulation_time = 0.0
         global last_landing
         last_landing = None
         for p in return_presets:
@@ -806,7 +799,7 @@ def input(key):
         update_instructions()
 
     if key == 'enter' and not auto_serve:
-        if not sim_state['running'] and not serve_queue.empty():
+        if not trajectory_points and not serve_queue.empty():
             params = serve_queue.get()
             current_speed = params['speed']
             current_yaw = params['yaw']
@@ -835,9 +828,9 @@ def input(key):
 
 
 # Add light and sky for the FPC view
-# sun = DirectionalLight()
-# sun.look_at(Vec3(1, -1, 1)) # Point the light
-# Sky() # Add a skybox for a realistic background
+sun = DirectionalLight()
+sun.look_at(Vec3(1, -1, 1)) # Point the light
+Sky() # Add a skybox for a realistic background
 
 # ----- MQTT Integration -----
 class MQTTSimulator:
@@ -994,5 +987,4 @@ mqtt_thread = threading.Thread(target=simulator.start, daemon=True)
 mqtt_thread.start()
 
 # ----- 8) Run the App -----
-sim_state['running'] = False # Wait for user to press space or MQTT serve
 app.run()
