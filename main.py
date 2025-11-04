@@ -217,6 +217,7 @@ def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
             }
             break
 
+    # Always store the final landing point
     if landing:
         pts.append((landing["x"], landing["y"], landing["z"], vx, vy, vz, landing["t"]))
 
@@ -342,6 +343,9 @@ trail_interval = 0.001  # seconds between trail dots for serve/animation
 # NEW: Simulation time for real-time playback
 simulation_time = 0.0
 
+# NEW: To distinguish serve vs return simulations
+simulation_type = None
+
 # Define return presets
 heights = [0.7, 1.8, 2.5]
 locations_1 = ['left', 'mid', 'right']
@@ -376,6 +380,7 @@ def compute_return_solutions():
         return
 
     # Simulate the serve trajectory with refinements
+    print(f"Computing return solutions for speed={current_speed} m/s, yaw={current_yaw}°, pitch={current_pitch}°")
     serve_sim = simulate_trajectory(
         speed_mps=current_speed,
         yaw_deg=current_yaw,
@@ -432,7 +437,8 @@ def compute_return_solutions():
 
 def display_return_view(view_id):
     """Show only the selected return (or all). Clears previous."""
-    global return_entities, return_options, current_return_view, return_info_text, is_return_flight, trail_timer, simulation_time, trajectory_points
+    global return_entities, return_options, current_return_view, return_info_text, is_return_flight
+    global trail_timer, simulation_time, trajectory_points, simulation_type
 
     clear_return_entities()
     return_info_text.visible = True
@@ -495,7 +501,6 @@ def display_return_view(view_id):
         if target_preset:
             sol = target_preset['solution']
             if sol:
-                is_return_flight = True
                 hit_point = sol['hit_point']
                 h = target_preset['height']
                 speed = sol['speed']
@@ -511,10 +516,12 @@ def display_return_view(view_id):
                 trajectory_points = sim['points']  # Store pre-computed points
                 ball.position = (hit_point['y'], h, hit_point['x'])  # Start position (Ursina: y, z, x -> x, y, z)
                 ball.color = target_preset['color']  # Color ball for return
+                is_return_flight = True
+                simulation_type = 'return'
 
 def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
     """(Re)initializes the ball using pre-computed trajectory."""
-    global trajectory_points, simulation_time, trail_timer
+    global trajectory_points, simulation_time, trail_timer, simulation_type, solutions_ready
     
     # Pre-compute the full trajectory
     sim = simulate_trajectory(speed_mps, yaw_deg, pitch_deg, start_x=start_x, start_y=start_y, start_z=start_z)
@@ -526,6 +533,8 @@ def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, st
     
     simulation_time = 0.0
     trail_timer = 0.0
+    solutions_ready = False
+    simulation_type = 'serve'
     print(f"Simulation Started with speed={speed_mps}, yaw={yaw_deg}, pitch={pitch_deg} from ({start_x}, {start_y}, {start_z})")
 
 # ----- 3) Ursina 3D App Setup -----
@@ -666,7 +675,7 @@ def update_instructions():
 def update():
     global current_speed, current_yaw, current_pitch
     global last_landing, is_return_flight, show_returns, current_return_view, solutions_ready, trail_timer, simulation_time
-    global trajectory_points
+    global trajectory_points, simulation_type
 
     if not trajectory_points:  # No active simulation
         if auto_serve:
@@ -678,7 +687,6 @@ def update():
                 reset_simulation(current_speed, current_yaw, current_pitch)
                 # Reset everything on new serve
                 last_landing = None
-                solutions_ready = False
                 for p in return_presets:
                     p['solution'] = None
                 clear_return_entities()
@@ -721,37 +729,40 @@ def update():
                 serve_trails.append(trail)
             trail_timer -= trail_interval
 
-    # === ONLY SERVE (not return) triggers landing logic ===
-    if not trajectory_points and not is_return_flight:  # Simulation ended
-        ball.color = color.red
-        print(f"Landed at (x={ball.z:.2f}, y={ball.x:.2f})")  # Ursina z = user's x, x = user's y
+    # Handle simulation end
+    if not trajectory_points:
+        if simulation_type == 'serve':
+            ball.color = color.red
+            print(f"Landed at (x={ball.z:.2f}, y={ball.x:.2f})")  # Ursina z = user's x, x = user's y
 
-        last_landing = {'x': ball.z, 'y': ball.x}
-        landings.append({'pos': (ball.z, ball.x), 'params': (current_speed, current_yaw, current_pitch)})
-        update_landing_text()
+            last_landing = {'x': ball.z, 'y': ball.x}
+            landings.append({'pos': (ball.z, ball.x), 'params': (current_speed, current_yaw, current_pitch)})
+            update_landing_text()
 
-        marker = Entity(model='sphere', scale=0.1, color=color.blue, position=(ball.x, 0.05, ball.z))
-        landing_markers.append(marker)
+            marker = Entity(model='sphere', scale=0.1, color=color.blue, position=(ball.x, 0.05, ball.z))
+            landing_markers.append(marker)
 
-        simulator.client.publish(simulator.status_topic, "serve=done")
+            simulator.client.publish(simulator.status_topic, "serve=done")
 
-        # === COMPUTE RETURN SOLUTIONS ONCE ===
-        if not solutions_ready:
-            compute_return_solutions()
-            solutions_ready = True
+            # === COMPUTE RETURN SOLUTIONS ONCE ===
+            if not solutions_ready:
+                compute_return_solutions()
+                solutions_ready = True
 
-        # Auto-show if enabled
-        if show_returns:
-            display_return_view(current_return_view)
-
-    # === RETURN FLIGHT: Just animate ===
-    elif not trajectory_points and is_return_flight:
-        ball.color = color.red
-        is_return_flight = False
-        # DO NOT compute solutions here!
+            # Auto-show if enabled
+            current_return_view = '0'
+            if show_returns:   
+                display_return_view(current_return_view)
+        elif simulation_type == 'return':
+            ball.color = color.red
+            is_return_flight = False
+            # DO NOT compute solutions here!
+        simulation_type = None
 
 def input(key):
     global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, is_return_flight, simulation_time, trajectory_points
+    global last_landing, solutions_ready, simulation_type
+    global current_speed, current_yaw, current_pitch
     global current_speed, current_yaw, current_pitch, last_landing, solutions_ready
 
     if key == 'q':
@@ -770,7 +781,6 @@ def input(key):
         ball.color = color.yellow
         trajectory_points = []
         simulation_time = 0.0
-        global last_landing
         last_landing = None
         for p in return_presets:
             p['solution'] = None
@@ -807,12 +817,11 @@ def input(key):
             current_pitch = params['pitch']
             reset_simulation(current_speed, current_yaw, current_pitch)
             # Reset returns
+            last_landing = None
             for p in return_presets:
                 p['solution'] = None
-            last_landing = None
-            solutions_ready = False
-            show_returns = False
             clear_return_entities()
+            show_returns = False  # Consistent with auto mode
 
     if key == 'b':
         show_returns = not show_returns
@@ -859,7 +868,7 @@ class MQTTSimulator:
 
     def on_message(self, client, userdata, msg):
         payload = msg.payload.decode()
-        print(payload)
+        # print(payload)
         # 如果訊息來自 "broadcast" 主題，檢查是否為查詢機器名稱的訊息
         if msg.topic == "broadcast":
             try:
@@ -920,6 +929,7 @@ class MQTTSimulator:
                             self.process_command(key.strip(), value.strip())
                         elif command:
                             self.process_command(command.strip(), None)
+                    self.publish_status()
                     
             except Exception as e:
                 print("Error parsing JSON for query or commands:", e)
@@ -932,19 +942,16 @@ class MQTTSimulator:
         if command == 'speed':
             try:
                 self.current_speed = float(value)
-                self.publish_status()
             except Exception as e:
                 print("Error setting speed:", e)
         elif command == 'yaw':
             try:
                 self.current_yaw = float(value)
-                self.publish_status()
             except Exception as e:
                 print("Error setting yaw:", e)
         elif command == 'pitch':
             try:
                 self.current_pitch = float(value)
-                self.publish_status()
             except Exception as e:
                 print("Error setting pitch:", e)
         elif command == 'serve':
