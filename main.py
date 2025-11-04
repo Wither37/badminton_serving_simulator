@@ -752,6 +752,7 @@ def update():
 
 def input(key):
     global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, is_return_flight, simulation_time, trajectory_points
+    global current_speed, current_yaw, current_pitch, last_landing, solutions_ready
 
     if key == 'q':
         application.quit()
@@ -809,6 +810,8 @@ def input(key):
             for p in return_presets:
                 p['solution'] = None
             last_landing = None
+            solutions_ready = False
+            show_returns = False
             clear_return_entities()
 
     if key == 'b':
