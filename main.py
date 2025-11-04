@@ -535,6 +535,9 @@ def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, st
     trail_timer = 0.0
     solutions_ready = False
     simulation_type = 'serve'
+    for e in return_trails:
+        destroy(e)
+    return_trails.clear()
     print(f"Simulation Started with speed={speed_mps}, yaw={yaw_deg}, pitch={pitch_deg} from ({start_x}, {start_y}, {start_z})")
 
 # ----- 3) Ursina 3D App Setup -----
@@ -655,7 +658,7 @@ def get_instructions_text():
     view_mode = "PLAYER / fixed" if is_player_view else "player / FIXED"
     serve_mode = "AUTO / manual" if auto_serve else "auto / MANUAL"
     returns_mode = "ON / off" if show_returns else "on / OFF"
-    view = "ALL" if current_return_view == '0' else (str(current_return_view) if isinstance(current_return_view, int) else "—")
+    view = "ALL" if current_return_view == '0' else (str(current_return_view) if str(current_return_view).isdigit() else "—")
     return f"""Q: Quit
 R: Reset
 T: Toggle Trajectory ({traj})
@@ -691,6 +694,7 @@ def update():
                     p['solution'] = None
                 clear_return_entities()
                 show_returns = False
+                update_instructions()
             except queue.Empty:
                 pass
         return
@@ -822,6 +826,7 @@ def input(key):
                 p['solution'] = None
             clear_return_entities()
             show_returns = False  # Consistent with auto mode
+            update_instructions()
 
     if key == 'b':
         show_returns = not show_returns
