@@ -336,7 +336,6 @@ show_returns = False
 current_return_view = '0'  # 'all' or 1-9
 return_entities = []
 return_options = []
-is_return_flight = False
 solutions_ready = False
 trail_timer = 0.0
 trail_interval = 0.001  # seconds between trail dots for serve/animation
@@ -438,7 +437,7 @@ def compute_return_solutions():
 
 def display_return_view(view_id):
     """Show only the selected return (or all). Clears previous."""
-    global return_entities, return_options, current_return_view, return_info_text, is_return_flight
+    global return_entities, return_options, current_return_view, return_info_text
     global trail_timer, simulation_time, trajectory_points, simulation_type
 
     clear_return_entities()
@@ -677,7 +676,7 @@ def update_instructions():
 # ----- 6) The Animation Loop (MODIFIED: Use pre-computed points with real-time interpolation) -----
 def update():
     global current_speed, current_yaw, current_pitch
-    global last_landing, is_return_flight, show_returns, current_return_view, solutions_ready, trail_timer, simulation_time
+    global last_landing, show_returns, current_return_view, solutions_ready, trail_timer, simulation_time
     global trajectory_points, simulation_type
 
     if not trajectory_points:  # No active simulation
@@ -763,7 +762,7 @@ def update():
         simulation_type = None
 
 def input(key):
-    global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, is_return_flight, simulation_time, trajectory_points
+    global show_trajectory, is_player_view, auto_serve, show_returns, current_return_view, simulation_time, trajectory_points
     global last_landing, solutions_ready, simulation_type
     global current_speed, current_yaw, current_pitch
     global current_speed, current_yaw, current_pitch, last_landing, solutions_ready
@@ -848,7 +847,7 @@ sun = DirectionalLight()
 sun.look_at(Vec3(1, -1, 1)) # Point the light
 Sky() # Add a skybox for a realistic background
 
-# ----- MQTT Integration -----
+# ----- 7) MQTT Setup -----
 # Create the queue for serve commands
 serve_queue = queue.Queue()
 
