@@ -6,14 +6,14 @@ from queue import Queue
 class MQTTSimulator:
     def __init__(
         self,
-        broker="140.113.213.131",
-        port=1884,
+        broker="broker.emqx.io",
+        port=1883,
         # 你原本的命令主題（舊協議）
         command_topic="Machine_A",
         status_topic="app",
         serve_queue: Queue | None = None,
         # 新增：對應後端 device 名稱（後端 DEFAULT_DEVICE）
-        device_name="MachineA",
+        device_name="Badminton_simulator",
     ):
         self.broker = broker
         self.port = port
@@ -117,7 +117,6 @@ class MQTTSimulator:
         menu = data.get("menu") or {}
         drills = menu.get("drills") or []
         menu_name = menu.get("menuName")
-        repeat_menu = menu.get("repeatMenu", 1)
 
         if action != "start":
             self.report_error("invalid_action", f"Menu action {action} not supported", action=action)
@@ -131,7 +130,7 @@ class MQTTSimulator:
             
         # 驗證並解析訓練動作
         try:
-            parsed_actions = self._parse_menu_drills(drills, repeat_menu)
+            parsed_actions = self._parse_menu_drills(drills)
         except ValueError as e:
             self.report_error("invalid_drill_format", str(e), menu_name=menu_name)
             print(f"[SIM] Menu validation failed: {e}")
@@ -159,58 +158,45 @@ class MQTTSimulator:
 
     def _parse_menu_drills(self, drills, repeat_menu=1):
         """解析菜單訓練結構為執行佇列項目"""
+        if drills is None:
+            return []
+        if not isinstance(drills, list):
+            raise ValueError(f"drills must be a list, got {type(drills)}")
+        
         all_actions = []
-        
-        for menu_repeat in range(repeat_menu):
-            for drill_idx, drill in enumerate(drills):
-                drill_name = drill.get("drillSetName", f"Drill {drill_idx}")
-                repeat_set = drill.get("repeatSet", 1)
-                actions = drill.get("actions", [])
-                
-                if not actions:
-                    raise ValueError(f"Drill '{drill_name}' has no actions")
-                
-                for set_repeat in range(repeat_set):
-                    for action in actions:
-                        action_type = action.get("actionType")
-                        if action_type != "shot":
-                            raise ValueError(f"Unsupported action type: {action_type}")
-                        
-                        # 驗證shot參數 - Updated to handle API format
-                        shot_params = action.get("shotParameters", {})
-                        target_pos = shot_params.get("targetPosition", {})
-                        
-                        # Handle both API format (ballSpeed, ballAngle) and potential legacy format
-                        ball_speed = shot_params.get("ballSpeed", 0)
-                        # API uses 'ballAngle' but also check for 'angle' fallback
-                        ball_angle = shot_params.get("ballAngle", shot_params.get("angle", 0))
-                        
-                        # 參數驗證
-                        if not (0 <= ball_speed <= 50):
-                            raise ValueError(f"Ball speed {ball_speed} out of range [0, 50]")
-                        if not (0 <= ball_angle <= 90):
-                            raise ValueError(f"Ball angle {ball_angle} out of range [0, 90]")
-                        
-                        # 重複每個動作指定次數
-                        repeat_action = action.get("repeatAction", 1)
-                        delay_seconds = action.get("delayBeforeShotSeconds", 0)
-                        
-                        for action_repeat in range(repeat_action):
-                            action_item = {
-                                "menuName": self.current_menu,
-                                "drillSetName": drill_name,
-                                "actionId": action.get("actionId", f"A{drill_idx}-{set_repeat}-{action_repeat}"),
-                                "description": action.get("description", ""),
-                                "targetPosition": target_pos,
-                                "ballSpeed": float(ball_speed),
-                                "ballAngle": float(ball_angle),
-                                "delaySeconds": float(delay_seconds),
-                                "menu_repeat": menu_repeat,
-                                "set_repeat": set_repeat,
-                                "action_repeat": action_repeat
-                            }
-                            all_actions.append(action_item)
-        
+        for drill_idx, drill in enumerate(drills):
+            params = drill.get("parameters") or {}
+
+            try:
+                speed = float(params.get("speed"))
+                yaw = float(params.get("yaw"))
+                pitch = float(params.get("pitch"))
+            except Exception:
+                raise ValueError(f"Invalid parameters at drills[{drill_idx}]: {params}")
+
+            try:
+                interval_ms = int(drill.get("interval", 0))
+            except Exception:
+                raise ValueError(f"Invalid interval at drills[{drill_idx}]: {drill.get('interval')}")
+
+            if interval_ms < 0:
+                interval_ms = 0
+
+            # 這裡故意用 speed/yaw/pitch/interval_ms，
+            # 讓 worker 的「舊格式兼容」分支可以直接跑
+            action_item = {
+                "drillSetName": "api_flat",
+                "actionId": f"API-{drill_idx}",
+                "description": "",
+                "speed": speed,
+                "yaw": yaw,
+                "pitch": pitch,
+                "interval_ms": interval_ms,
+                "set_repeat": 0,
+                "action_repeat": 0,
+            }
+            all_actions.append(action_item)
+
         return all_actions
 
     def handle_backend_control(self, payload_text: str):

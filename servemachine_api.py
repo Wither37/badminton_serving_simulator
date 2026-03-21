@@ -26,9 +26,9 @@ class FeederSequenceRunRequest(BaseModel):
 
 router = APIRouter(prefix="/machine", tags=["machine"])
 
-MQTT_BROKER = os.getenv("MQTT_BROKER", "140.113.213.131")
-MQTT_PORT = int(os.getenv("MQTT_PORT", 1884))
-DEFAULT_DEVICE = os.getenv("DEFAULT_DEVICE", "MachineA")
+MQTT_BROKER = 'broker.emqx.io'
+MQTT_PORT = 1883
+DEFAULT_DEVICE = 'Badminton_simulator'
 
 mqtt_client = mqtt.Client()
 
@@ -85,7 +85,8 @@ def publish_mqtt(topic: str, payload: dict) -> bool:
 
 def _sequence_to_iot_menu_payload(req: FeederSequenceRunRequest) -> dict:
     """
-    Convert FeederSequenceRunRequest to new IoT/menu format with correct drill structure.
+        IoT/menu payload。
+        menu = { menuName, drills:[{parameters:{speed,yaw,pitch}, interval}, ...] }
     """
     meta = req.meta or {}
     menu_name = (
@@ -93,41 +94,37 @@ def _sequence_to_iot_menu_payload(req: FeederSequenceRunRequest) -> dict:
         or meta.get("menu_name")
         or (f"Sequence {req.call_id}" if req.call_id else "Sequence")
     )
-    
-    description = meta.get("description", "Auto-generated training sequence")
-    repeat_menu = req.repeat if (req.repeat and req.repeat > 0) else 1
-    
-    # Convert shots to drill actions
-    actions = []
-    for i, shot in enumerate(req.shots):
-        action = {
-            "actionId": f"A{i:03d}",
-            "actionType": "shot", 
-            "description": shot.description or f"Shot {i+1}",
-            "repeatAction": 1,  # Each shot is executed once per drill set
-            "delayBeforeShotSeconds": shot.delay_ms / 1000.0 if shot.delay_ms else 0,
-            "shotParameters": {
-                "targetPosition": {
-                    "x": getattr(shot, 'target_x', 0.0),
-                    "y": getattr(shot, 'target_y', 0.0), 
-                    "z": getattr(shot, 'target_z', 2.0)
+
+    base_drills: List[Dict[str, Any]] = []
+    for s in req.shots:
+        base_drills.append(
+            {
+                "parameters": {
+                    "speed": s.speed,
+                    "yaw": s.yaw,
+                    "pitch": s.pitch,
                 },
-                "ballSpeed": shot.speed,
-                "ballAngle": getattr(shot, 'angle', shot.pitch)  # Use angle if available, fallback to pitch
+                "interval": int(s.delay_ms),
             }
-        }
-        actions.append(action)
-    
-    # Create a single drill set containing all actions
-    drill = {
-        "drillSetName": f"{menu_name} - Main Set",
-        "repeatSet": 1,
-        "actions": actions
-    }
-    
-    # Apply repeat_gap_ms as delay after the last action if specified
-    if req.repeat_gap_ms and req.repeat_gap_ms > 0 and actions:
-        actions[-1]["delayBeforeShotSeconds"] += req.repeat_gap_ms / 1000.0
+        )
+
+    cycles = req.repeat if (req.repeat and req.repeat > 0) else 1
+    gap_ms = int(req.repeat_gap_ms or 0)
+
+    drills: List[Dict[str, Any]] = []
+    for i in range(cycles):
+        one_cycle = [
+            {
+                "parameters": dict(d["parameters"]),
+                "interval": int(d["interval"]),
+            }
+            for d in base_drills
+        ]
+
+        if one_cycle and gap_ms > 0 and i < cycles - 1:
+            one_cycle[-1]["interval"] += gap_ms
+
+        drills.extend(one_cycle)
 
     return {
         "schema_version": 1,
@@ -135,10 +132,7 @@ def _sequence_to_iot_menu_payload(req: FeederSequenceRunRequest) -> dict:
         "action": "start",
         "menu": {
             "menuName": menu_name,
-            "description": description,
-            "dateCreated": "2026-02-04",  # Current date
-            "repeatMenu": repeat_menu,
-            "drills": [drill]
+            "drills": drills,
         },
     }
 

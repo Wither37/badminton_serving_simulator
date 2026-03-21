@@ -11,7 +11,7 @@ from physics import simulate_trajectory
 from court import Court
 from ui import UIManager
 from return_solver import ReturnSolver
-from MQTTSimulator import MQTTSimulator
+from MQTTSimulator_menu import MQTTSimulator
 
 # Global state
 class GameState:
@@ -249,7 +249,7 @@ def input(key):
 
 # MQTT setup
 serve_queue = queue.Queue()
-simulator = MQTTSimulator(command_topic='Machine_A', status_topic='abcde12345', serve_queue=serve_queue)
+simulator = MQTTSimulator(command_topic='Badminton_simulator', status_topic='abcde12345', serve_queue=serve_queue)
 mqtt_thread = threading.Thread(target=simulator.start, daemon=True)
 mqtt_thread.start()
 

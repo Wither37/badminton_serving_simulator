@@ -7,7 +7,7 @@ class RemoteClient:
     A remote client to interact with the MQTTSimulator.
     It sends commands and subscribes to the 'app' topic to receive replies.
     """
-    def __init__(self, broker='broker.emqx.io', port=1883, command_topic='Machine_A', status_topic='app'):
+    def __init__(self, broker='broker.emqx.io', port=1883, command_topic='Badminton_simulator', status_topic='app'):
         self.broker = broker
         self.port = port
         self.command_topic = command_topic
@@ -105,5 +105,5 @@ class RemoteClient:
 
 if __name__ == '__main__':
     # The command_topic must match the one used by the emulator instance
-    remote = RemoteClient(command_topic='Machine_A', status_topic='abcde12345')
+    remote = RemoteClient(command_topic='Badminton_simulator', status_topic='abcde12345')
     remote.start()
