@@ -27,6 +27,7 @@ LINE_Y_OFFSET  = 0.02          # To prevent z-fighting (flickering)
 
 # ----- Trail sampling (reduce lag) -----
 TRAIL_DT          = 0.01       # larger physics step for preview
+MAX_SERVE_TRAIL   = 3
 
 # ----- 2) 物理模擬參數 (Physics) -----
 G = 9.81

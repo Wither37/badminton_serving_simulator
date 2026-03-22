@@ -4,7 +4,6 @@ from ursina.prefabs.first_person_controller import FirstPersonController
 from ursina.shaders import lit_with_shadows_shader
 import threading
 import queue
-import time
 
 from config import *
 from physics import simulate_trajectory
@@ -12,15 +11,15 @@ from court import Court
 from ui import UIManager
 from return_solver import ReturnSolver
 from MQTTSimulator_menu import MQTTSimulator
+from BallFlight import BallFlight
 
 # Global state
 class GameState:
     def __init__(self):
-        self.trajectory_points = []
-        self.simulation_time = 0.0
-        self.simulation_type = None
-        self.trail_timer = 0.0
-        
+        self.active_balls = []          # 目前還在飛的球
+        self.serve_timer = 0.0          # 固定間隔發球計時器
+        self.serve_interval = 0.5       # 每幾秒發一球，可自行調整
+
         self.current_speed = 30.0
         self.current_yaw = 3.0
         self.current_pitch = 22.0
@@ -66,104 +65,77 @@ sun = DirectionalLight()
 sun.look_at(Vec3(1, -1, 1))
 Sky()
 
-def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
-    """重置模擬"""
-    sim = simulate_trajectory(speed_mps, yaw_deg, pitch_deg, start_x=start_x, start_y=start_y, start_z=start_z)
-    state.trajectory_points = sim['points']
-    ball.position = (start_y, start_z, start_x)
-    ball.color = color.yellow
-    state.simulation_time = 0.0
-    state.trail_timer = 0.0
-    state.solutions_ready = False
-    state.simulation_type = 'serve'
-    for e in state.return_trails:
-        destroy(e)
-    state.return_trails.clear()
+# def new_serve_traj():
+#     # 開一條新軌跡(新的一球)
+#     state.serve_trails.append([])
+
+#     # 超過上限：刪最舊那條（destroy 它的所有點）
+#     while len(state.serve_trails) > MAX_SERVE_TRAIL:
+#         oldest = state.serve_trails.pop(0)
+#         for e in oldest:
+#             destroy(e)
+
+# def reset_simulation(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+#     """重置模擬"""
+#     sim = simulate_trajectory(speed_mps, yaw_deg, pitch_deg, start_x=start_x, start_y=start_y, start_z=start_z)
+#     state.trajectory_points = sim['points']
+#     ball.position = (start_y, start_z, start_x)
+#     ball.color = color.yellow
+#     state.simulation_time = 0.0
+#     state.trail_timer = 0.0
+#     state.solutions_ready = False
+#     state.simulation_type = 'serve'
+#     new_serve_traj()  # Start a new serve trajectory
+#     for e in state.return_trails:
+#         destroy(e)
+#     state.return_trails.clear(speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT)
+
+def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+    ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
+    state.active_balls.append(ball)
 
 def update():
     """主更新迴圈"""
-    if not state.trajectory_points:  # No active simulation
-        if state.auto_serve:
+
+    # 固定每 N 秒自動發一球，不管場上還有沒有球
+    if state.auto_serve:
+        state.serve_timer += time.dt
+
+        while state.serve_timer >= state.serve_interval:
             try:
                 params = serve_queue.get_nowait()
                 state.current_speed = params['speed']
                 state.current_yaw = params['yaw']
                 state.current_pitch = params['pitch']
-                reset_simulation(state.current_speed, state.current_yaw, state.current_pitch)
-                # Reset everything on new serve
-                state.last_landing = None
-                for p in solver.return_presets:
-                    p['solution'] = None
-                solver.clear_entities()
-                state.show_returns = False
-                ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                                      state.show_returns, state.current_return_view)
+                state.serve_timer -= state.serve_interval
+                state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
+
+                create_ball(
+                    state.current_speed,
+                    state.current_yaw,
+                    state.current_pitch,
+                    state.serve_interval
+                )
+                if len(state.active_balls) > MAX_SERVE_TRAIL:
+                    state.active_balls[0].destroy()
+                    state.active_balls.pop(0)
+                    destroy(state.landing_markers[0])
+                    state.landing_markers.pop(0)
+                    ui.landings.pop(0)
+                    ui.update_landing_text()
+
+
             except queue.Empty:
-                pass
-        return
+                state.serve_timer = 0.0  # 沒有新球了，重置計時器
+                state.serve_interval = 0.5  # 恢復預設間隔
+                break
 
-    # Advance simulation time
-    state.simulation_time += time.dt
+    # 更新所有球
+    for ball in state.active_balls:
+        if ball.finished:
+            continue
+        ball.update()
 
-    # Find the current segment in pre-computed points
-    for i in range(len(state.trajectory_points) - 1):
-        curr_t = state.trajectory_points[i][6]
-        next_t = state.trajectory_points[i + 1][6]
-        if curr_t <= state.simulation_time < next_t:
-            frac = (state.simulation_time - curr_t) / (next_t - curr_t)
-            curr_pos = state.trajectory_points[i]
-            next_pos = state.trajectory_points[i + 1]
-            # Lerp position (x, y, z)
-            x = curr_pos[0] + frac * (next_pos[0] - curr_pos[0])
-            y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
-            z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
-            # Set ball position (Ursina: y, z, x)
-            ball.position = (y, z, x)
-            break
-    else:
-        # Beyond last point: Set to final landing and stop
-        final_pos = state.trajectory_points[-1]
-        ball.position = (final_pos[1], final_pos[2], final_pos[0])
-        state.trajectory_points = []  # End simulation
-
-    if state.show_trajectory:
-        state.trail_timer += time.dt
-        if state.trail_timer >= TRAIL_INTERVAL:
-            trail = Entity(model='sphere', color=color.red, scale=0.03, position=ball.position)
-            if state.simulation_type == 'return':
-                state.return_trails.append(trail)
-            elif state.simulation_type == 'serve':
-                state.serve_trails.append(trail)
-            state.trail_timer -= TRAIL_INTERVAL
-
-    # Handle simulation end
-    if not state.trajectory_points:
-        if state.simulation_type == 'serve':
-            ball.color = color.red
-            print(f"Landed at (x={ball.z:.2f}, y={ball.x:.2f})")  # Ursina z = user's x, x = user's y
-
-            state.last_landing = {'x': ball.z, 'y': ball.x}
-            ui.landings.append({'pos': (ball.z, ball.x), 'params': (state.current_speed, state.current_yaw, state.current_pitch)})
-            ui.update_landing_text()
-
-            marker = Entity(model='sphere', scale=0.1, color=color.blue, position=(ball.x, 0.05, ball.z))
-            state.landing_markers.append(marker)
-
-            simulator.client.publish(simulator.status_topic, "serve=done")
-
-            # === COMPUTE RETURN SOLUTIONS ONCE ===
-            if not state.solutions_ready:
-                solver.compute_solutions(state.last_landing, state.current_speed, state.current_yaw, state.current_pitch)
-                state.solutions_ready = True
-
-            # Auto-show if enabled
-            state.current_return_view = '0'
-            if state.show_returns:   
-                solver.display_view(state.current_return_view, state.last_landing)
-        elif state.simulation_type == 'return':
-            ball.color = color.red
-            # DO NOT compute solutions here!
-        state.simulation_type = None
 
 def input(key):
     """按鍵處理"""
@@ -171,29 +143,32 @@ def input(key):
         application.quit()
 
     if key == 'r':
-        for e in state.serve_trails + state.return_trails + state.landing_markers + solver.return_entities:
+        for ball in state.active_balls:
+            ball.destroy()
+        state.active_balls.clear()
+
+        for e in state.landing_markers:
             destroy(e)
-        state.serve_trails.clear()
-        state.return_trails.clear()
         state.landing_markers.clear()
-        solver.return_entities.clear()
+
+        for trail in state.serve_trails:
+            for e in trail:
+                destroy(e)
+        state.serve_trails.clear()
+
         ui.landings.clear()
         ui.update_landing_text()
-        ball.position = (0, RELEASE_HEIGHT, 0)
-        ball.color = color.yellow
-        state.trajectory_points = []
-        state.simulation_time = 0.0
-        state.last_landing = None
-        for p in solver.return_presets:
-            p['solution'] = None
-        state.show_returns = False  
+
+        state.serve_timer = 0.0
+        state.serve_interval = 0.5
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
                               state.show_returns, state.current_return_view)
 
     if key == 't':
         state.show_trajectory = not state.show_trajectory
-        for e in state.serve_trails + state.return_trails:
-            e.visible = state.show_trajectory
+        for ball in state.active_balls:
+            for e in ball.trail_entities:
+                e.visible = state.show_trajectory
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
                               state.show_returns, state.current_return_view)
 
@@ -216,20 +191,18 @@ def input(key):
                               state.show_returns, state.current_return_view)
 
     if key == 'enter' and not state.auto_serve:
-        if not state.trajectory_points and not serve_queue.empty():
+        if not serve_queue.empty():
             params = serve_queue.get()
             state.current_speed = params['speed']
             state.current_yaw = params['yaw']
             state.current_pitch = params['pitch']
-            reset_simulation(state.current_speed, state.current_yaw, state.current_pitch)
-            # Reset returns
-            state.last_landing = None
-            for p in solver.return_presets:
-                p['solution'] = None
-            solver.clear_entities()
-            state.show_returns = False  # Consistent with auto mode
-            ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                                  state.show_returns, state.current_return_view)
+            state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
+            create_ball(
+                state.current_speed,
+                state.current_yaw,
+                state.current_pitch,
+                state.serve_interval
+            )
 
     if key == 'b':
         state.show_returns = not state.show_returns
