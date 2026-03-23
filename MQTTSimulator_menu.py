@@ -2,6 +2,7 @@ import paho.mqtt.client as mqtt
 import json
 import time
 from queue import Queue
+from menu_storage import save_menu
 
 class MQTTSimulator:
     def __init__(
@@ -145,6 +146,12 @@ class MQTTSimulator:
         
         # 報告菜單開始
         self.report_menu_start()
+        
+        # 保存菜單到存儲
+        try:
+            save_menu(data)
+        except Exception as e:
+            print(f"[SIM] Warning: Could not save menu to storage: {e}")
 
         # 將解析的動作加入執行佇列
         queued = 0

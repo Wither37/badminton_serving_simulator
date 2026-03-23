@@ -12,6 +12,7 @@ from ui import UIManager
 from return_solver import ReturnSolver
 from MQTTSimulator_menu import MQTTSimulator
 from BallFlight import BallFlight
+from menu_storage import list_menus, get_menu_payload, delete_menu
 
 # Global state
 class GameState:
@@ -26,7 +27,10 @@ class GameState:
         
         self.show_trajectory = True
         self.is_player_view = True
-        self.auto_serve = True
+        self.serve_mode = 0             # 0=auto, 1=manual
+        self.menu_execution_queue = []  # queued menu ids to run in manual mode
+        self.manual_menu_running = False
+        self.menu_delete_mode = False
         self.show_returns = False
         self.current_return_view = '0'
         self.solutions_ready = False
@@ -49,8 +53,8 @@ court = Court()
 ball = Entity(model='sphere', position=(0, RELEASE_HEIGHT, 0), color=color.yellow, scale=0.15)
 solver = ReturnSolver(ball, ui, state)
 
-ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                      state.show_returns, state.current_return_view)
+ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                      state.menu_delete_mode, state.show_returns, state.current_return_view)
 
 # Player
 player = FirstPersonController(
@@ -94,11 +98,39 @@ def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.
     ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
     state.active_balls.append(ball)
 
+
+def clear_serve_queue():
+    while not serve_queue.empty():
+        try:
+            serve_queue.get_nowait()
+        except queue.Empty:
+            break
+
+
+def queue_menu_actions(menu_id):
+    payload = get_menu_payload(menu_id)
+    if not payload:
+        return 0
+
+    clear_serve_queue()
+    drills = payload.get('menu', {}).get('drills', [])
+    for drill in drills:
+        params = drill.get('parameters', {})
+        action_item = {
+            'speed': params.get('speed', 30.0),
+            'yaw': params.get('yaw', 0.0),
+            'pitch': params.get('pitch', 20.0),
+            'interval_ms': drill.get('interval', 1000)
+        }
+        serve_queue.put(action_item)
+
+    return len(drills)
+
 def update():
     """主更新迴圈"""
 
-    # 固定每 N 秒自動發一球，不管場上還有沒有球
-    if state.auto_serve:
+    # Process queue in auto mode or when a manual queued menu is running.
+    if state.serve_mode == 0 or state.manual_menu_running:
         state.serve_timer += time.dt
 
         while state.serve_timer >= state.serve_interval:
@@ -128,6 +160,9 @@ def update():
             except queue.Empty:
                 state.serve_timer = 0.0  # 沒有新球了，重置計時器
                 state.serve_interval = 0.5  # 恢復預設間隔
+                if state.manual_menu_running:
+                    state.manual_menu_running = False
+                    print("[App] Manual queued menu finished")
                 break
 
     # 更新所有球
@@ -139,6 +174,8 @@ def update():
 
 def input(key):
     """按鍵處理"""
+    global stored_menus
+
     if key == 'q':
         application.quit()
 
@@ -161,16 +198,23 @@ def input(key):
 
         state.serve_timer = 0.0
         state.serve_interval = 0.5
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+        state.manual_menu_running = False
+        state.menu_delete_mode = False
+        state.menu_execution_queue.clear()
+        clear_serve_queue()
+        if state.serve_mode == 1:
+            ui.show_menu_list(stored_menus)
+            ui.update_queue_list(state.menu_execution_queue)
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                              state.menu_delete_mode, state.show_returns, state.current_return_view)
 
     if key == 't':
         state.show_trajectory = not state.show_trajectory
         for ball in state.active_balls:
             for e in ball.trail_entities:
                 e.visible = state.show_trajectory
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                      state.menu_delete_mode, state.show_returns, state.current_return_view)
 
     if key == 'v':
         state.is_player_view = not state.is_player_view
@@ -182,27 +226,60 @@ def input(key):
             camera.parent = scene
             camera.position = (0, 1.8, -4.0)
             camera.rotation = (0, 0, 0)
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                      state.menu_delete_mode, state.show_returns, state.current_return_view)
 
-    if key == 'm':
-        state.auto_serve = not state.auto_serve
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+    if key == 'n':
+        # Cycle through serve modes: auto -> manual -> auto
+        state.serve_mode = (state.serve_mode + 1) % 2
+        state.menu_delete_mode = False
+        
+        if state.serve_mode == 1:  # Manual mode
+            stored_menus = list_menus()
+            ui.show_menu_list(stored_menus)
+            ui.update_queue_list(state.menu_execution_queue)
+        else:
+            ui.hide_menu_list()
+        
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                              state.menu_delete_mode, state.show_returns, state.current_return_view)
 
-    if key == 'enter' and not state.auto_serve:
-        if not serve_queue.empty():
-            params = serve_queue.get()
-            state.current_speed = params['speed']
-            state.current_yaw = params['yaw']
-            state.current_pitch = params['pitch']
-            state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
-            create_ball(
-                state.current_speed,
-                state.current_yaw,
-                state.current_pitch,
-                state.serve_interval
-            )
+    if key == 'x' and state.serve_mode == 1:
+        state.menu_delete_mode = not state.menu_delete_mode
+        mode_label = "ON" if state.menu_delete_mode else "OFF"
+        print(f"[App] Menu delete mode: {mode_label}")
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                              state.menu_delete_mode, state.show_returns, state.current_return_view)
+
+    if key == 'enter':
+        if state.serve_mode == 1:  # Manual mode
+            if state.manual_menu_running:
+                print("[App] A queued menu is already running")
+            elif state.menu_execution_queue:
+                next_menu_id = state.menu_execution_queue.pop(0)
+                drill_count = queue_menu_actions(next_menu_id)
+                if drill_count > 0:
+                    state.manual_menu_running = True
+                    state.serve_timer = state.serve_interval
+                    print(f"[App] Executing queued menu {next_menu_id} ({drill_count} actions)")
+                else:
+                    print(f"[App] Menu {next_menu_id} has no playable drills")
+                ui.show_menu_list(stored_menus)
+                ui.update_queue_list(state.menu_execution_queue)
+            elif not serve_queue.empty():
+                params = serve_queue.get()
+                state.current_speed = params['speed']
+                state.current_yaw = params['yaw']
+                state.current_pitch = params['pitch']
+                state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
+                create_ball(
+                    state.current_speed,
+                    state.current_yaw,
+                    state.current_pitch,
+                    state.serve_interval
+                )
+            else:
+                print("[App] No queued menu. Press 1-9 to enqueue a menu.")
 
     if key == 'b':
         state.show_returns = not state.show_returns
@@ -210,15 +287,38 @@ def input(key):
             solver.display_view('0', state.last_landing)
         else:
             solver.clear_entities()
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                      state.menu_delete_mode, state.show_returns, state.current_return_view)
 
-    # === RETURN VIEW KEYS: 0-9 ===
-    if key in '0123456789' and state.show_returns and state.solutions_ready:
-        solver.display_view(key, state.last_landing)
-        state.current_return_view = key
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.auto_serve, 
-                              state.show_returns, state.current_return_view)
+    # === RETURN VIEW / MENU QUEUE KEYS: 0-9 ===
+    if key in '0123456789':
+        if state.serve_mode == 1 and not (state.show_returns and state.solutions_ready):
+            menu_index = int(key) - 1
+            if 0 <= menu_index < len(stored_menus):
+                selected_menu = stored_menus[menu_index]
+                menu_id = selected_menu['id']
+                if state.menu_delete_mode:
+                    if delete_menu(menu_id):
+                        # Remove deleted menu id from pending execution queue.
+                        state.menu_execution_queue = [mid for mid in state.menu_execution_queue if mid != menu_id]
+                        stored_menus = list_menus()
+                        print(f"[App] Deleted menu {menu_index+1}: {selected_menu['menuName']} (id={menu_id})")
+                    else:
+                        print(f"[App] Failed to delete menu id={menu_id}")
+                else:
+                    state.menu_execution_queue.append(menu_id)
+                    print(f"[App] Enqueued menu {menu_index+1}: {selected_menu['menuName']} (id={menu_id})")
+                ui.show_menu_list(stored_menus)
+                ui.update_queue_list(state.menu_execution_queue)
+        elif state.show_returns and state.solutions_ready:  # Return view mode
+            solver.display_view(key, state.last_landing)
+            state.current_return_view = key
+            ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                                  state.menu_delete_mode, state.show_returns, state.current_return_view)
+
+# Initialize menu storage
+stored_menus = list_menus()
+print(f"[App] Loaded {len(stored_menus)} stored menus")
 
 # MQTT setup
 serve_queue = queue.Queue()
