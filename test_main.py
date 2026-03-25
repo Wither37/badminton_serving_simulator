@@ -97,6 +97,13 @@ Sky()
 def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
     ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
     state.active_balls.append(ball)
+    if len(state.active_balls) > MAX_SERVE_TRAIL:
+                    state.active_balls[0].destroy()
+                    state.active_balls.pop(0)
+                    destroy(state.landing_markers[0])
+                    state.landing_markers.pop(0)
+                    ui.landings.pop(0)
+                    ui.update_landing_text()
 
 
 def clear_serve_queue():
@@ -148,13 +155,6 @@ def update():
                     state.current_pitch,
                     state.serve_interval
                 )
-                if len(state.active_balls) > MAX_SERVE_TRAIL:
-                    state.active_balls[0].destroy()
-                    state.active_balls.pop(0)
-                    destroy(state.landing_markers[0])
-                    state.landing_markers.pop(0)
-                    ui.landings.pop(0)
-                    ui.update_landing_text()
 
 
             except queue.Empty:
