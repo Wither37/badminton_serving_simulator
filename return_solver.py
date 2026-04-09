@@ -9,11 +9,17 @@ class ReturnSolver:
         self.return_entities = []
         self.return_options = []
         self.colors = [color.cyan, color.lime, color.orange]
-        self.return_presets = self._init_presets()
+        self.preset_template = self._init_presets()
         self.ball = ball  # 儲存 ball 物件
         self.current_return_view = '0'
         self.ui = ui_manager
         self.game_state = game_state
+        self._animation_active = False
+        self._animation_points = []
+        self._animation_time = 0.0
+        self._animation_trail_timer = 0.0
+        self._animation_trail_interval = TRAIL_INTERVAL
+        self._animation_color = color.white
     
     def _init_presets(self):
         presets = []
@@ -28,31 +34,36 @@ class ReturnSolver:
                     "solution": None
                 })
         return presets
+
+    def _new_presets_for_ball(self):
+        return [dict(preset, solution=None) for preset in self.preset_template]
     
-    def compute_solutions(self, last_landing, current_speed, current_yaw, current_pitch):
-        """計算所有回球方案"""
-        if last_landing is None:
+    def compute_solutions(self, ball_obj):
+        """為單一球物件計算並儲存回球方案"""
+        if ball_obj is None or getattr(ball_obj, 'landing', None) is None:
             return
 
-        print(f"Computing return solutions for speed={current_speed} m/s, yaw={current_yaw}°, pitch={current_pitch}°")
+        if getattr(ball_obj, 'return_solutions_ready', False):
+            return
+
+        ball_obj.return_presets = self._new_presets_for_ball()
+
+        print(f"Computing return solutions for speed={ball_obj.speed} m/s, yaw={ball_obj.yaw}°, pitch={ball_obj.pitch}°")
         serve_sim = simulate_trajectory(
-            speed_mps=current_speed,
-            yaw_deg=current_yaw,
-            pitch_deg=current_pitch,
+            speed_mps=ball_obj.speed,
+            yaw_deg=ball_obj.yaw,
+            pitch_deg=ball_obj.pitch,
             refine_net=True, refine_heights=True,
             refine_heights_list=HEIGHTS,
             max_t=6.0,
-            start_x=0.0,
-            start_y=0.0,
-            start_z=RELEASE_HEIGHT,
+            start_x=ball_obj.start_x,
+            start_y=ball_obj.start_y,
+            start_z=ball_obj.start_z,
         )
         apex_z = serve_sim['apex']['z']
         hit_points = serve_sim.get('hit_points', {})
 
-        for preset in self.return_presets:
-            if preset['solution'] is not None:
-                continue
-
+        for preset in ball_obj.return_presets:
             h = preset['height']
             if h > apex_z:
                 preset['solution'] = None
@@ -79,15 +90,23 @@ class ReturnSolver:
                 preset['solution'] = solution
             else:
                 preset['solution'] = None
+
+        ball_obj.return_solutions_ready = True
     
-    def display_view(self, view_id, last_landing):
+    def display_view(self, view_id, ball_obj):
         """顯示回球方案"""
         self.clear_entities()
+        self.ball.visible = True
         self.current_return_view = view_id
         self.return_options = []
 
-        if last_landing is None:
+        if ball_obj is None or not getattr(ball_obj, 'return_solutions_ready', False):
             self.ui.update_return_info("No landing yet.")
+            return
+
+        return_presets = getattr(ball_obj, 'return_presets', [])
+        if not return_presets:
+            self.ui.update_return_info("No return options.")
             return
 
         target_preset = None
@@ -95,8 +114,8 @@ class ReturnSolver:
             self.ui.update_return_info("Showing ALL return options")
         else:
             idx = int(view_id) - 1
-            if 0 <= idx < len(self.return_presets):
-                target_preset = self.return_presets[idx]
+            if 0 <= idx < len(return_presets):
+                target_preset = return_presets[idx]
                 self.ui.update_return_info(f"Return {idx+1}: {target_preset['name']}\n" \
                                     f"{'No solution' if not target_preset['solution'] else ''}")
             else:
@@ -109,7 +128,7 @@ class ReturnSolver:
                 destroy(e)
             self.game_state.return_trails.clear()
             
-            for i, preset in enumerate(self.return_presets):
+            for i, preset in enumerate(return_presets):
                 sol = preset['solution']
                 if not sol:
                     continue
@@ -143,26 +162,77 @@ class ReturnSolver:
                 sol = target_preset['solution']
                 if sol:
                     hit_point = sol['hit_point']
+                    sim = sol['sim']
                     h = target_preset['height']
-                    speed = sol['speed']
-                    yaw_deg = sol['yaw_deg']
-                    pitch = sol['pitch']
                     
                     for e in self.game_state.return_trails:
                         destroy(e)
                     self.game_state.return_trails.clear()
-                    
-                    sim = simulate_trajectory(speed, yaw_deg, pitch, start_x=hit_point['x'], start_y=hit_point['y'], start_z=h)
-                    self.game_state.trajectory_points = sim['points']
-                    self.game_state.simulation_time = 0.0
-                    self.game_state.trail_timer = 0.0
-                    self.game_state.simulation_type = 'return'
+
                     self.ball.position = (hit_point['y'], h, hit_point['x'])
                     self.ball.color = target_preset['color']
+                    self._start_return_animation(sim['points'], target_preset['color'])
+
+    def _start_return_animation(self, points, ball_color):
+        if not points:
+            return
+
+        self._animation_points = points
+        self._animation_time = 0.0
+        self._animation_trail_timer = 0.0
+        self._animation_color = ball_color
+        self._animation_active = True
+
+    def is_animating(self):
+        return self._animation_active
+
+    def stop_animation(self):
+        self._animation_active = False
+        self._animation_points = []
+
+    def update_animation(self):
+        """每幀更新單一回球動畫（與發球同樣的時間插值邏輯）。"""
+        if not self._animation_active or not self._animation_points:
+            return
+
+        self._animation_time += time.dt
+        points = self._animation_points
+
+        for i in range(len(points) - 1):
+            curr_t = points[i][6]
+            next_t = points[i + 1][6]
+
+            if curr_t <= self._animation_time < next_t:
+                frac = (self._animation_time - curr_t) / (next_t - curr_t)
+                curr_pos = points[i]
+                next_pos = points[i + 1]
+
+                x = curr_pos[0] + frac * (next_pos[0] - curr_pos[0])
+                y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
+                z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
+                self.ball.position = (y, z, x)
+
+                self._animation_trail_timer += time.dt
+                if self._animation_trail_timer >= self._animation_trail_interval:
+                    trail = Entity(model='sphere', scale=0.03, color=self._animation_color, position=self.ball.position)
+                    self.game_state.return_trails.append(trail)
+                    self._animation_trail_timer -= self._animation_trail_interval
+                return
+
+        final_pos = points[-1]
+        self.ball.position = (final_pos[1], final_pos[2], final_pos[0])
+        self.stop_animation()
     
     def clear_entities(self):
         """清除回球顯示"""
+        self.stop_animation()
+
+        for e in self.game_state.return_trails:
+            destroy(e)
+        self.game_state.return_trails.clear()
+
         for e in self.return_entities:
             destroy(e)
         self.return_entities.clear()
         self.ui.hide_return_info()
+        self.ball.visible = False

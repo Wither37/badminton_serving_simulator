@@ -3,7 +3,7 @@ from physics import simulate_trajectory
 from config import *
 
 class BallFlight:
-    def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+    def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, solver=None, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
         self.speed = speed_mps
         self.yaw = yaw_deg
         self.pitch = pitch_deg
@@ -11,6 +11,13 @@ class BallFlight:
         self.ui = ui
         self.simulator = simulator
         self.state = state
+        self.solver = solver
+        self.start_x = start_x
+        self.start_y = start_y
+        self.start_z = start_z
+        self.landing = None
+        self.return_presets = []
+        self.return_solutions_ready = False
 
         sim = simulate_trajectory(
             speed_mps, yaw_deg, pitch_deg,
@@ -76,6 +83,10 @@ class BallFlight:
         self.entity.color = color.red
         print(f"Landed at (x={self.entity.z:.2f}, y={self.entity.x:.2f})")
 
+        self.landing = {'x': self.entity.z, 'y': self.entity.x}
+        self.state.last_landing = self.landing
+        self.state.latest_landed_ball = self
+
         marker = Entity(
             model='sphere',
             scale=0.1,
@@ -91,6 +102,10 @@ class BallFlight:
         self.ui.update_landing_text()
 
         self.simulator.client.publish(self.simulator.status_topic, "serve=done")
+
+        if self.solver is not None:
+            self.solver.compute_solutions(self)
+            self.state.solutions_ready = True
 
         self.finished = True
 

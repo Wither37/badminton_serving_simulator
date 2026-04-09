@@ -53,8 +53,13 @@ class UIManager:
         serve_mode: 0=auto, 1=manual
         """
         traj = "ON / off" if show_trajectory else "on / OFF"
-        view_mode = "PLAYER / fixed" if is_player_view else "player / FIXED"
-        
+        if is_player_view == 0:
+            view_mode = "FREE / serve machine / player"
+        elif is_player_view == 1:
+            view_mode = "free / SERVE MACHINE / player"
+        else:
+            view_mode = "free / serve machine / PLAYER"
+
         if serve_mode == 0:
             serve_text = "AUTO / manual"
         else:
