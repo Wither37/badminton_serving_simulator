@@ -58,6 +58,6 @@ if __name__ == "__main__":
     test_machine_status()
     test_start_program()
     # Uncomment to test controls
-    test_pause()
-    test_resume()
+    # test_pause()
+    # test_resume()
     # test_stop()

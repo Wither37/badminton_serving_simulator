@@ -40,3 +40,21 @@ LOCATIONS_2 = ['front', 'mid', 'back']
 TARGETS_X = [5.90, 3.35, 0.76]
 TARGET_YS = [-(SINGLES_HALF_W - 0.5), 0, (SINGLES_HALF_W - 0.5)]
 TRAIL_INTERVAL = 0.01
+
+# Return animation tuning
+RETURN_POINT_STEP_MULT = 10.0      # >1.0 means fewer return trajectory points than serve
+RETURN_TRAIL_INTERVAL = 0.02      # larger interval means fewer return trail spheres
+RETURN_TARGET_X_CLEAR = 0.35      # deeper backcourt target (near baseline x=0)
+RETURN_TARGET_X_DRIVE = 2.90
+RETURN_TARGET_X_LIFT = 5.20
+RETURN_PLAYER_CONTACT_BACK_OFFSET = 0.20  # meters; player stands behind contact point
+PRECOMPUTE_SERVE_WARMUP = 1.50    # seconds to wait after precompute before first serve
+
+# Return-follow camera (available only when dynamic return mode is ON)
+RETURN_CAMERA_HEIGHT = 1.65
+RETURN_CAMERA_SENSITIVITY = 140.0
+RETURN_CAMERA_PITCH_MIN = -70.0
+RETURN_CAMERA_PITCH_MAX = 70.0
+
+# Return precompute cache
+RETURN_PRECOMPUTE_CACHE_MAX = 128

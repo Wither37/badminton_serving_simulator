@@ -16,8 +16,8 @@ class UIManager:
         )
         
         self.return_info_text = Text(
-            position=(0.4, 0.4),
-            scale=1.2,
+            position=window.top_left + Vec2(0.05, -0.15),
+            scale=1.0,
             color=color.white,
             visible=False
         )
@@ -53,12 +53,22 @@ class UIManager:
         serve_mode: 0=auto, 1=manual
         """
         traj = "ON / off" if show_trajectory else "on / OFF"
-        if is_player_view == 0:
-            view_mode = "FREE / serve machine / player"
-        elif is_player_view == 1:
-            view_mode = "free / SERVE MACHINE / player"
+        if show_returns:
+            if is_player_view == 0:
+                view_mode = "FREE / serve machine / player / return-cam"
+            elif is_player_view == 1:
+                view_mode = "free / SERVE MACHINE / player / return-cam"
+            elif is_player_view == 2:
+                view_mode = "free / serve machine / PLAYER / return-cam"
+            else:
+                view_mode = "free / serve machine / player / RETURN-CAM"
         else:
-            view_mode = "free / serve machine / PLAYER"
+            if is_player_view == 0:
+                view_mode = "FREE / serve machine / player"
+            elif is_player_view == 1:
+                view_mode = "free / SERVE MACHINE / player"
+            else:
+                view_mode = "free / serve machine / PLAYER"
 
         if serve_mode == 0:
             serve_text = "AUTO / manual"
@@ -73,8 +83,8 @@ R: Reset
 T: Toggle Trajectory ({traj})
 V: Toggle View ({view_mode})
 N: Toggle Serve Mode ({serve_text})
-B: Toggle Returns ({returns_mode})
-0-9: Show & Play Return ({view}) / Enqueue Menu (Manual)
+    B: Toggle Dynamic Returns ({returns_mode}) [Manual only]
+    0-9: Enqueue Menu (Manual)
 Enter: Serve (Manual) / Run Next Queued Menu
 X: Toggle Delete Menu Mode"""
         

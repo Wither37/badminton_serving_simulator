@@ -22,12 +22,8 @@ class BallFlight:
 
         sim = simulate_trajectory(
             speed_mps, yaw_deg, pitch_deg,
-            refine_net=True,
-            refine_heights=True,
-            refine_heights_list=HEIGHTS,
             start_x=start_x, start_y=start_y, start_z=start_z
         )
-        self.serve_sim = sim
         self.points = sim["points"]
         self.simulation_time = 0.0
         self.trail_timer = 0.0
@@ -106,9 +102,6 @@ class BallFlight:
         self.ui.update_landing_text()
 
         self.simulator.client.publish(self.simulator.status_topic, "serve=done")
-
-        if self.solver is not None:
-            self.solver.compute_solutions(self)
 
         self.finished = True
 
