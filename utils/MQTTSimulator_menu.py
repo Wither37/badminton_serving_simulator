@@ -2,7 +2,7 @@ import paho.mqtt.client as mqtt
 import json
 import time
 from queue import Queue
-from menu_storage import save_menu
+from utils.menu_storage import save_menu
 
 class MQTTSimulator:
     def __init__(

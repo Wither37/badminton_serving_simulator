@@ -1,13 +1,12 @@
 """回球方案計算與顯示"""
 from math import atan2, degrees
 from ursina import *
-from physics import simulate_trajectory, find_fastest_clearing_shot
-from config import *
+from utils.physics import simulate_trajectory, find_fastest_clearing_shot
+from utils.config import *
 
 class ReturnSolver:
     def __init__(self, ball, ui_manager, game_state):
         self.return_entities = []
-        self.return_options = []
         self.colors = [color.cyan, color.lime, color.orange]
         self.preset_template = self._init_presets()
         self.ball = ball  # 儲存 ball 物件
@@ -49,17 +48,19 @@ class ReturnSolver:
         ball_obj.return_presets = self._new_presets_for_ball()
 
         print(f"Computing return solutions for speed={ball_obj.speed} m/s, yaw={ball_obj.yaw}°, pitch={ball_obj.pitch}°")
-        serve_sim = simulate_trajectory(
-            speed_mps=ball_obj.speed,
-            yaw_deg=ball_obj.yaw,
-            pitch_deg=ball_obj.pitch,
-            refine_net=True, refine_heights=True,
-            refine_heights_list=HEIGHTS,
-            max_t=6.0,
-            start_x=ball_obj.start_x,
-            start_y=ball_obj.start_y,
-            start_z=ball_obj.start_z,
-        )
+        serve_sim = getattr(ball_obj, 'serve_sim', None)
+        if not serve_sim or 'hit_points' not in serve_sim:
+            serve_sim = simulate_trajectory(
+                speed_mps=ball_obj.speed,
+                yaw_deg=ball_obj.yaw,
+                pitch_deg=ball_obj.pitch,
+                refine_net=True, refine_heights=True,
+                refine_heights_list=HEIGHTS,
+                max_t=6.0,
+                start_x=ball_obj.start_x,
+                start_y=ball_obj.start_y,
+                start_z=ball_obj.start_z,
+            )
         apex_z = serve_sim['apex']['z']
         hit_points = serve_sim.get('hit_points', {})
 
@@ -85,7 +86,7 @@ class ReturnSolver:
                 yaw_deg=yaw_deg,
                 start_y=hit_point['y']
             )
-            if speed:
+            if speed is not None:
                 solution = {'speed': speed, 'pitch': pitch, 'sim': sim, 'hit_point': hit_point, 'yaw_deg': yaw_deg}
                 preset['solution'] = solution
             else:
@@ -98,7 +99,6 @@ class ReturnSolver:
         self.clear_entities()
         self.ball.visible = True
         self.current_return_view = view_id
-        self.return_options = []
 
         if ball_obj is None or not getattr(ball_obj, 'return_solutions_ready', False):
             self.ui.update_return_info("No landing yet.")
@@ -154,8 +154,6 @@ class ReturnSolver:
                 label = Text(text=str(i+1), scale=2,
                             position=(0, 0.2, 0), parent=marker, billboard=True)
                 self.return_entities.append(label)
-
-                self.return_options.append((i, preset))
         else:
             # Animate single return
             if target_preset:

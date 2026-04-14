@@ -1,5 +1,5 @@
 from math import cos, sin, radians, sqrt, inf
-from config import *
+from utils.config import *
 
 # Standalone trajectory simulation (MODIFIED: Reactive refinement; no predictive adaptive dt)
 def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
@@ -124,43 +124,35 @@ def simulate_trajectory(speed_mps=23.0, yaw_deg=6.0, pitch_deg=20.0,
         if refine_heights and prev and vz < 0:
             for h in refine_heights_list:
                 if h not in hit_points and prev[2] >= h >= z:  # Crossed h downward
-                    w_h = (h - prev[2]) / (z - prev[2])
-                    if refine_heights:
-                        # Reactive refinement: Subdivide the step for accuracy
-                        temp_x, temp_y, temp_z = prev[0], prev[1], prev[2]
-                        temp_vx, temp_vy, temp_vz = prev[3], prev[4], prev[5]
-                        temp_t = prev[6]
+                    # Reactive refinement: Subdivide the step for accuracy
+                    temp_x, temp_y, temp_z = prev[0], prev[1], prev[2]
+                    temp_vx, temp_vy, temp_vz = prev[3], prev[4], prev[5]
+                    temp_t = prev[6]
+                    fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
+                    crossed_h = False
+                    while not crossed_h and temp_t < prev[6] + dt_base:
+                        vmag = sqrt(temp_vx**2 + temp_vy**2 + temp_vz**2)
+                        ax = -drag_k * vmag * temp_vx
+                        ay = -drag_k * vmag * temp_vy
+                        az = -G - drag_k * vmag * temp_vz
+                        temp_vx += ax * dt_fine
+                        temp_vy += ay * dt_fine
+                        temp_vz += az * dt_fine
+                        temp_x += temp_vx * dt_fine
+                        temp_y += temp_vy * dt_fine
+                        temp_z += temp_vz * dt_fine
+                        temp_t += dt_fine
+                        if fine_prev[2] >= h >= temp_z:
+                            w_h = (h - fine_prev[2]) / (temp_z - fine_prev[2])
+                            hit_x = lerp(fine_prev[0], temp_x, w_h)
+                            hit_y = lerp(fine_prev[1], temp_y, w_h)
+                            # Check bounds
+                            if hit_x > NET_X and abs(hit_y) <= HALF_W:
+                                hit_points[h] = {'x': hit_x, 'y': hit_y}
+                            crossed_h = True
                         fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
-                        crossed_h = False
-                        while not crossed_h and temp_t < prev[6] + dt_base:
-                            vmag = sqrt(temp_vx**2 + temp_vy**2 + temp_vz**2)
-                            ax = -drag_k * vmag * temp_vx
-                            ay = -drag_k * vmag * temp_vy
-                            az = -G - drag_k * vmag * temp_vz
-                            temp_vx += ax * dt_fine
-                            temp_vy += ay * dt_fine
-                            temp_vz += az * dt_fine
-                            temp_x += temp_vx * dt_fine
-                            temp_y += temp_vy * dt_fine
-                            temp_z += temp_vz * dt_fine
-                            temp_t += dt_fine
-                            if fine_prev[2] >= h >= temp_z:
-                                w_h = (h - fine_prev[2]) / (temp_z - fine_prev[2])
-                                hit_x = lerp(fine_prev[0], temp_x, w_h)
-                                hit_y = lerp(fine_prev[1], temp_y, w_h)
-                                # Check bounds
-                                if hit_x > NET_X and abs(hit_y) <= HALF_W:
-                                    hit_points[h] = {'x': hit_x, 'y': hit_y}
-                                crossed_h = True
-                            fine_prev = (temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t)
-                        # Update main state to fine end for better accuracy post-crossing
-                        x, y, z, vx, vy, vz, t = temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t
-                    else:
-                        hit_x = lerp(prev[0], x, w_h)
-                        hit_y = lerp(prev[1], y, w_h)
-                        # Check bounds
-                        if hit_x > NET_X and abs(hit_y) <= HALF_W:
-                            hit_points[h] = {'x': hit_x, 'y': hit_y}
+                    # Update main state to fine end for better accuracy post-crossing
+                    x, y, z, vx, vy, vz, t = temp_x, temp_y, temp_z, temp_vx, temp_vy, temp_vz, temp_t
 
         # ground landing
         w_land = None
@@ -196,7 +188,6 @@ def find_fastest_clearing_shot(
       • clears the net (clearance > 0)
       • uses the *lowest* possible pitch for that speed
     """
-    yaw = radians(yaw_deg)
     max_speed = 100.0
     min_speed = 0.0
     high_pitch = 90.0

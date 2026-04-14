@@ -1,6 +1,6 @@
 """球場與場地元件繪製"""
 from ursina import *
-from config import *
+from utils.config import *
 
 class Court:
     def __init__(self):

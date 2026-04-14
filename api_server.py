@@ -6,7 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 # Import the router from servemachine_api.py
-from servemachine_api import router
+from utils.servemachine_api import router
 
 app = FastAPI(
     title="Badminton Machine API",

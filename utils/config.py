@@ -39,4 +39,4 @@ LOCATIONS_1 = ['left', 'mid', 'right']
 LOCATIONS_2 = ['front', 'mid', 'back']
 TARGETS_X = [5.90, 3.35, 0.76]
 TARGET_YS = [-(SINGLES_HALF_W - 0.5), 0, (SINGLES_HALF_W - 0.5)]
-TRAIL_INTERVAL = 0.001
+TRAIL_INTERVAL = 0.01

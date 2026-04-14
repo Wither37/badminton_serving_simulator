@@ -1,6 +1,6 @@
 from ursina import *
-from physics import simulate_trajectory
-from config import *
+from utils.physics import simulate_trajectory
+from utils.config import *
 
 class BallFlight:
     def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, solver=None, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
@@ -18,11 +18,16 @@ class BallFlight:
         self.landing = None
         self.return_presets = []
         self.return_solutions_ready = False
+        self.serve_sim = None
 
         sim = simulate_trajectory(
             speed_mps, yaw_deg, pitch_deg,
+            refine_net=True,
+            refine_heights=True,
+            refine_heights_list=HEIGHTS,
             start_x=start_x, start_y=start_y, start_z=start_z
         )
+        self.serve_sim = sim
         self.points = sim["points"]
         self.simulation_time = 0.0
         self.trail_timer = 0.0
@@ -84,7 +89,6 @@ class BallFlight:
         print(f"Landed at (x={self.entity.z:.2f}, y={self.entity.x:.2f})")
 
         self.landing = {'x': self.entity.z, 'y': self.entity.x}
-        self.state.last_landing = self.landing
         self.state.latest_landed_ball = self
 
         marker = Entity(
@@ -105,7 +109,6 @@ class BallFlight:
 
         if self.solver is not None:
             self.solver.compute_solutions(self)
-            self.state.solutions_ready = True
 
         self.finished = True
 
