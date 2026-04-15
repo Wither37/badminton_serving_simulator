@@ -48,7 +48,7 @@ class UIManager:
             txt += f"{i+1}: Pos ({pos[0]:.2f}, {pos[1]:.2f}), Speed={params[0]}, Yaw={params[1]}, Pitch={params[2]}\n"
         self.landing_text.text = txt
     
-    def get_instructions_text(self, show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns, current_return_view):
+    def get_instructions_text(self, show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns):
         """
         serve_mode: 0=auto, 1=manual
         """
@@ -76,8 +76,6 @@ class UIManager:
             serve_text = "auto / MANUAL"
         
         returns_mode = "ON / off" if show_returns else "on / OFF"
-        view = "ALL" if current_return_view == '0' else (str(current_return_view) if str(current_return_view).isdigit() else "—")
-        
         instructions = f"""Q: Quit
 R: Reset
 T: Toggle Trajectory ({traj})
@@ -95,8 +93,8 @@ X: Toggle Delete Menu Mode"""
         
         return instructions
     
-    def update_instructions(self, show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns, current_return_view):
-        self.instructions_text.text = self.get_instructions_text(show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns, current_return_view)
+    def update_instructions(self, show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns):
+        self.instructions_text.text = self.get_instructions_text(show_trajectory, is_player_view, serve_mode, menu_delete_mode, show_returns)
 
     def update_return_info(self, text, visible=True):
         self.return_info_text.text = text

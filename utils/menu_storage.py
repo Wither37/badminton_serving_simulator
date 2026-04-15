@@ -1,4 +1,5 @@
 """Menu storage and retrieval system for badminton simulator."""
+import copy
 import json
 import os
 from datetime import datetime
@@ -79,9 +80,20 @@ def save_menu(payload: Dict[str, Any]) -> str:
         "menuName": menu_name,
         "description": description,
         "payload": payload,  # Store full payload for re-execution
+        # Simulator-only metadata (local extension, never sent back to server).
+        "simulator": {
+            "schema_version": 1,
+            "default_return_policy": None,
+            "drill_overrides": {}
+        },
         "timestamp": datetime.now().isoformat(),
         "source": "api"
     }
+
+    if existing is not None:
+        prev_sim = storage["menus"][existing].get("simulator")
+        if isinstance(prev_sim, dict):
+            menu_entry["simulator"] = prev_sim
     
     if existing is not None:
         # Overwrite existing
@@ -133,6 +145,41 @@ def get_menu_payload(menu_id: str) -> Optional[Dict[str, Any]]:
     if menu:
         return menu.get("payload")
     return None
+
+
+def get_menu_drills_for_simulator(menu_id: str) -> Optional[List[Dict[str, Any]]]:
+    """Return simulator runtime drills with local-only overrides applied.
+
+    This preserves original API payload shape while allowing local simulator metadata.
+    """
+    menu = load_menu(menu_id)
+    if not menu:
+        return None
+
+    payload = menu.get("payload") or {}
+    drills = (payload.get("menu") or {}).get("drills") or []
+    runtime_drills = copy.deepcopy(drills)
+
+    sim_meta = menu.get("simulator") or {}
+    default_policy = sim_meta.get("default_return_policy")
+    drill_overrides = sim_meta.get("drill_overrides") or {}
+
+    for idx, drill in enumerate(runtime_drills):
+        policy = None
+
+        if isinstance(default_policy, dict):
+            policy = copy.deepcopy(default_policy)
+
+        override = drill_overrides.get(str(idx))
+        if isinstance(override, dict):
+            override_policy = override.get("return_policy")
+            if isinstance(override_policy, dict):
+                policy = copy.deepcopy(override_policy)
+
+        if policy is not None:
+            drill["simulator_return_policy"] = policy
+
+    return runtime_drills
 
 
 def delete_menu(menu_id: str) -> bool:

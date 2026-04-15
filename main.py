@@ -7,11 +7,11 @@ import queue
 
 from utils.config import *
 from utils.court import Court
-from ui import UIManager
+from utils.ui import UIManager
 from utils.return_solver import ReturnSolver
 from utils.MQTTSimulator_menu import MQTTSimulator
 from utils.BallFlight import BallFlight
-from utils.menu_storage import list_menus, get_menu_payload, delete_menu
+from utils.menu_storage import list_menus, get_menu_drills_for_simulator, delete_menu
 
 # Global state
 class GameState:
@@ -31,7 +31,6 @@ class GameState:
         self.manual_menu_running = False
         self.menu_delete_mode = False
         self.show_returns = False
-        self.current_return_view = '0'
         self.latest_landed_ball = None
         
         self.return_trails = []
@@ -46,18 +45,7 @@ class GameState:
         self.serve_start_cooldown = 0.0
         self.return_cam_yaw = 180.0
         self.return_cam_pitch = 0.0
-
-
-def clear_trajectories_for_next_serve():
-    # Keep balls/landings, but clear accumulated trajectory visuals.
-    for b in state.active_balls:
-        for e in b.trail_entities:
-            destroy(e)
-        b.trail_entities.clear()
-
-    for e in state.return_trails:
-        destroy(e)
-    state.return_trails.clear()
+        self.wait_for_player_home = False
 
 
 def apply_view_mode():
@@ -90,13 +78,15 @@ def _max_view_mode():
     return 3 if state.show_returns else 2
 
 
-def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True):
-    if state.show_returns:
-        clear_trajectories_for_next_serve()
-
-    ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, solver, start_x, start_y, start_z)
+def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True, return_policy=None):
+    ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
     state.active_balls.append(ball)
-    solver.register_ball(ball, precomputed_return=precomputed_return, allow_runtime_solve=allow_runtime_return_solve)
+    solver.register_ball(
+        ball,
+        precomputed_return=precomputed_return,
+        allow_runtime_solve=allow_runtime_return_solve,
+        return_policy=return_policy,
+    )
     if len(state.active_balls) > MAX_SERVE_TRAIL:
         oldest = state.active_balls.pop(0)
         oldest.destroy()
@@ -111,20 +101,6 @@ def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.
             if ui.landings:
                 ui.landings.pop(0)
                 ui.update_landing_text()
-
-
-def get_latest_landed_ball():
-    current = state.latest_landed_ball
-    if current in state.active_balls and current.finished:
-        return current
-
-    for ball in reversed(state.active_balls):
-        if ball.finished:
-            state.latest_landed_ball = ball
-            return ball
-
-    state.latest_landed_ball = None
-    return None
 
 
 def clear_serve_queue():
@@ -142,6 +118,7 @@ def clear_precompute_state():
     state.precompute_returns = {}
     state.precompute_index = 0
     state.precompute_hide_info_on_first_serve = False
+    state.wait_for_player_home = False
 
 
 def reset_before_menu_execution():
@@ -161,6 +138,7 @@ def reset_before_menu_execution():
     state.serve_timer = 0.0
     state.serve_interval = 0.5
     state.serve_start_cooldown = 0.0
+    state.wait_for_player_home = False
 
     solver.clear_entities()
     clear_serve_queue()
@@ -176,18 +154,19 @@ def enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=False):
             'pitch': params.get('pitch', 20.0),
             'interval_ms': drill.get('interval', 1000),
             'return_plan': (precomputed_map or {}).get(idx),
+            'return_policy': drill.get('simulator_return_policy'),
+            # In precompute mode, never do runtime solving during playback.
             'precompute_locked': precompute_locked,
         }
         serve_queue.put(action_item)
 
 
 def start_menu_precompute(menu_id):
-    payload = get_menu_payload(menu_id)
-    if not payload:
+    drills = get_menu_drills_for_simulator(menu_id)
+    if drills is None:
         return 0
 
     clear_serve_queue()
-    drills = payload.get('menu', {}).get('drills', [])
     if not drills:
         return 0
 
@@ -200,12 +179,11 @@ def start_menu_precompute(menu_id):
 
 
 def queue_menu_actions(menu_id, precompute_returns=False):
-    payload = get_menu_payload(menu_id)
-    if not payload:
+    drills = get_menu_drills_for_simulator(menu_id)
+    if drills is None:
         return 0
 
     clear_serve_queue()
-    drills = payload.get('menu', {}).get('drills', [])
 
     # Immediate queueing path (no staged precompute)
     enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=precompute_returns and state.show_returns)
@@ -241,6 +219,7 @@ def update():
                 start_x=0.0,
                 start_y=0.0,
                 start_z=RELEASE_HEIGHT,
+                return_policy=drill.get('simulator_return_policy'),
             )
             state.precompute_index += 1
 
@@ -248,7 +227,11 @@ def update():
 
         if state.precompute_index >= total:
             valid_count = sum(1 for v in state.precompute_returns.values() if v is not None)
-            ui.update_return_info(f"Precompute done: {valid_count}/{total} returns ready", visible=True)
+            no_solution_count = total - valid_count
+            ui.update_return_info(
+                f"Precompute done: {valid_count}/{total} ready, {no_solution_count} skipped",
+                visible=True,
+            )
             finished_menu_id = state.precompute_menu_id
             enqueue_menu_drills(
                 state.precompute_drills,
@@ -267,13 +250,29 @@ def update():
         if state.serve_start_cooldown > 0.0:
             state.serve_start_cooldown = max(0.0, state.serve_start_cooldown - time.dt)
 
-        hold_for_return = state.manual_menu_running and state.show_returns and solver.has_outstanding_return()
         hold_for_warmup = state.serve_start_cooldown > 0.0
-        if hold_for_return:
-            # In manual return mode, serve strictly one rally at a time.
-            pass
+        active_serve_in_flight = any(not b.finished for b in state.active_balls)
+        strict_player_return_gate = state.manual_menu_running and state.show_returns and RETURN_BLOCK_ON_PLAYER_RECOVER
 
-        state.serve_timer += time.dt
+        if strict_player_return_gate:
+            # Strict rally sequence in return mode:
+            # serve -> wait return cycle -> player back home -> next serve.
+            if state.wait_for_player_home:
+                if solver.consume_player_returned_home_pulse() and not hold_for_warmup:
+                    state.wait_for_player_home = False
+                    if serve_queue.empty():
+                        state.serve_timer = 0.0
+                        state.serve_interval = 0.5
+                        if state.manual_menu_running:
+                            state.manual_menu_running = False
+                            print("[App] Manual queued menu finished")
+                    else:
+                        state.serve_timer = state.serve_interval
+            elif not active_serve_in_flight:
+                state.serve_timer += time.dt
+        else:
+            state.serve_timer += time.dt
+
         max_carry = max(state.serve_interval * 2.0, 0.25)
         if state.serve_timer > max_carry:
             state.serve_timer = max_carry
@@ -281,8 +280,12 @@ def update():
         serves_spawned = 0
         max_serves_per_frame = 1
 
-        while (not hold_for_return) and (not hold_for_warmup) and state.serve_timer >= state.serve_interval and serves_spawned < max_serves_per_frame:
+        while (not hold_for_warmup) and state.serve_timer >= state.serve_interval and serves_spawned < max_serves_per_frame:
             try:
+                if strict_player_return_gate:
+                    if active_serve_in_flight or state.wait_for_player_home:
+                        break
+
                 params = serve_queue.get_nowait()
                 state.current_speed = params['speed']
                 state.current_yaw = params['yaw']
@@ -296,11 +299,18 @@ def update():
                     state.current_pitch,
                     state.serve_interval,
                     precomputed_return=params.get('return_plan'),
-                    allow_runtime_return_solve=not params.get('precompute_locked', False)
+                    allow_runtime_return_solve=not params.get('precompute_locked', False),
+                    return_policy=params.get('return_policy'),
                 )
                 if state.precompute_hide_info_on_first_serve:
                     ui.hide_return_info()
                     state.precompute_hide_info_on_first_serve = False
+
+                if strict_player_return_gate:
+                    # If this serve has a planned return, block until player reaches home.
+                    # If no solution exists, fallback is menu interval timing.
+                    state.wait_for_player_home = params.get('return_plan') is not None
+
                 serves_spawned += 1
 
 
@@ -314,8 +324,6 @@ def update():
 
     # 更新所有球
     for ball in state.active_balls:
-        if ball.finished:
-            continue
         ball.update()
 
     # 更新回球動畫（單一回球播放）
@@ -349,7 +357,6 @@ def input(key):
         state.menu_execution_queue.clear()
         state.latest_landed_ball = None
         state.show_returns = False
-        state.current_return_view = '0'
         clear_precompute_state()
         solver.set_enabled(False)
         solver.clear_entities()
@@ -358,7 +365,7 @@ def input(key):
             ui.show_menu_list(stored_menus)
             ui.update_queue_list(state.menu_execution_queue)
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                              state.menu_delete_mode, state.show_returns, state.current_return_view)
+                              state.menu_delete_mode, state.show_returns)
 
     if key == 't':
         state.show_trajectory = not state.show_trajectory
@@ -366,7 +373,7 @@ def input(key):
             for e in ball.trail_entities:
                 e.visible = state.show_trajectory
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns, state.current_return_view)
+                      state.menu_delete_mode, state.show_returns)
 
     if key == 'v':
         state.is_player_view = (state.is_player_view + 1) % (_max_view_mode() + 1)
@@ -375,7 +382,7 @@ def input(key):
             state.return_cam_pitch = camera.rotation_x
         apply_view_mode()
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns, state.current_return_view)
+                      state.menu_delete_mode, state.show_returns)
 
     if key == 'n':
         # Cycle through serve modes: auto -> manual -> auto
@@ -390,7 +397,6 @@ def input(key):
             state.show_returns = False
             solver.set_enabled(False)
             solver.clear_entities()
-            state.current_return_view = '0'
 
         if state.is_player_view > _max_view_mode():
             state.is_player_view = 2
@@ -404,14 +410,14 @@ def input(key):
             ui.hide_menu_list()
         
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                              state.menu_delete_mode, state.show_returns, state.current_return_view)
+                              state.menu_delete_mode, state.show_returns)
 
     if key == 'x' and state.serve_mode == 1:
         state.menu_delete_mode = not state.menu_delete_mode
         mode_label = "ON" if state.menu_delete_mode else "OFF"
         print(f"[App] Menu delete mode: {mode_label}")
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                              state.menu_delete_mode, state.show_returns, state.current_return_view)
+                              state.menu_delete_mode, state.show_returns)
 
     if key == 'enter':
         if state.serve_mode == 1:  # Manual mode
@@ -450,7 +456,8 @@ def input(key):
                     state.current_pitch,
                     state.serve_interval,
                     precomputed_return=params.get('return_plan'),
-                    allow_runtime_return_solve=not params.get('precompute_locked', False)
+                    allow_runtime_return_solve=not params.get('precompute_locked', False),
+                    return_policy=params.get('return_policy'),
                 )
             else:
                 print("[App] No queued menu. Press 1-9 to enqueue a menu.")
@@ -462,16 +469,14 @@ def input(key):
                 state.show_returns = False
                 solver.set_enabled(False)
                 solver.clear_entities()
-                state.current_return_view = '0'
             ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                          state.menu_delete_mode, state.show_returns, state.current_return_view)
+                          state.menu_delete_mode, state.show_returns)
             return
 
         state.show_returns = not state.show_returns
         solver.set_enabled(state.show_returns)
         if not state.show_returns:
             solver.clear_entities()
-            state.current_return_view = '0'
             if state.is_player_view == 3:
                 state.is_player_view = 2
                 apply_view_mode()
@@ -481,7 +486,7 @@ def input(key):
                 state.is_player_view = 2
             apply_view_mode()
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns, state.current_return_view)
+                      state.menu_delete_mode, state.show_returns)
 
     # === RETURN VIEW / MENU QUEUE KEYS: 0-9 ===
     if key in '0123456789':
@@ -521,7 +526,7 @@ if __name__ == '__main__':
     solver = ReturnSolver(ball, ui, state)
 
     ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                          state.menu_delete_mode, state.show_returns, state.current_return_view)
+                          state.menu_delete_mode, state.show_returns)
 
     # Player
     player = FirstPersonController(

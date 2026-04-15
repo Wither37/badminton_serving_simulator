@@ -1,5 +1,6 @@
 """Dynamic return engine: player movement + context-aware return generation."""
 import copy as pycopy
+import time
 
 from ursina import *
 
@@ -16,12 +17,8 @@ class ReturnSolver:
         self.enabled = False
         self._handled_ball_ids = set()
 
-        self.return_entities = []
-        self._anim_points = []
-        self._anim_time = 0.0
-        self._anim_trail_timer = 0.0
-        self._anim_color = color.white
-        self._animation_active = False
+        self._active_return_animations = []
+        self._player_returned_home_pulse = False
 
         self.player_home = Vec3(0.0, 0.9, NET_X + 2.6)
         self.player_speed = 5.8
@@ -42,6 +39,10 @@ class ReturnSolver:
             visible=False,
         )
 
+    def _debug(self, msg):
+        if RETURN_DEBUG_LOG:
+            print(f"[ReturnDebug] {msg}")
+
     def set_enabled(self, enabled):
         self.enabled = enabled
         self.return_player.visible = enabled
@@ -55,22 +56,13 @@ class ReturnSolver:
             self._planned_returns.clear()
             self._pending_requests.clear()
             self._handled_ball_ids.clear()
+            self._player_returned_home_pulse = False
             self.return_player.position = self.player_home
 
-    def is_busy(self):
-        return self._animation_active or self.player_state in ("move_to_intercept", "wait_contact", "recover")
-
-    def has_outstanding_return(self):
-        if self._active_plan is not None:
-            return True
-        if self._animation_active:
-            return True
-        if self.player_state in ("move_to_intercept", "wait_contact", "recover"):
-            return True
-        for plan in self._planned_returns:
-            if plan.get("state") not in ("done", "expired"):
-                return True
-        return False
+    def consume_player_returned_home_pulse(self):
+        pulse = self._player_returned_home_pulse
+        self._player_returned_home_pulse = False
+        return pulse
 
     def _build_plan_from_solution(self, ball_obj, contact, target, sol):
         intercept_pos = self._intercept_position_from_contact(contact)
@@ -92,32 +84,30 @@ class ReturnSolver:
         x = min(COURT_LEN, contact["x"] + RETURN_PLAYER_CONTACT_BACK_OFFSET)
         return Vec3(contact["y"], self.return_player.y, x)
 
-    def display_view(self, view_id, ball_obj):
-        # Backward-compatible entrypoint: treat as request to trigger dynamic return processing.
-        del view_id
-        if ball_obj is not None:
-            self.register_ball(ball_obj)
-
     def clear_entities(self):
         self.stop_animation()
         self._active_plan = None
         self._planned_returns.clear()
         self._pending_requests.clear()
         self._handled_ball_ids.clear()
+        self._player_returned_home_pulse = False
         self.player_state = "idle"
         self.return_player.position = self.player_home
-        for e in self.game_state.return_trails:
+        for anim in self._active_return_animations:
+            for t in anim.get("trails", []):
+                destroy(t)
+            e = anim.get("entity")
+            if e is not None:
+                destroy(e)
+        self._active_return_animations.clear()
+        for e in list(self.game_state.return_trails):
             destroy(e)
         self.game_state.return_trails.clear()
-        for e in self.return_entities:
-            destroy(e)
-        self.return_entities.clear()
 
     def stop_animation(self):
-        self._animation_active = False
-        self._anim_points = []
-        self._anim_time = 0.0
-        self._anim_trail_timer = 0.0
+        for anim in self._active_return_animations:
+            anim["landed"] = True
+            anim["clear_timer"] = 0.0
 
     def _choose_target_point(self, incoming_landing):
         in_x = incoming_landing["x"]
@@ -141,6 +131,47 @@ class ReturnSolver:
             ty = max(min(ty, SINGLES_HALF_W - 0.35), -(SINGLES_HALF_W - 0.35))
 
         return profile, {"x": tx, "y": ty, "z": 0.0}
+
+    def _apply_return_policy(self, profile, target, policy):
+        if not isinstance(policy, dict):
+            return profile, target
+
+        def depth_x_for_profile(pf):
+            if pf == "drive":
+                return RETURN_TARGET_X_DRIVE
+            if pf == "drop":
+                return RETURN_TARGET_X_LIFT
+            return RETURN_TARGET_X_CLEAR
+
+        p = policy.get("profile")
+        if p in ("clear", "drive", "lift", "drop"):
+            profile = p
+
+        # Optional lateral intent independent from depth/profile.
+        side = policy.get("side")
+        if side == "left":
+            target = {"x": depth_x_for_profile(profile), "y": -(SINGLES_HALF_W - 0.35), "z": 0.0}
+        elif side == "right":
+            target = {"x": depth_x_for_profile(profile), "y": (SINGLES_HALF_W - 0.35), "z": 0.0}
+        elif side in ("mid", "center"):
+            target = {"x": depth_x_for_profile(profile), "y": 0.0, "z": 0.0}
+
+        # Optional absolute target override. When present, ignore default_x/side intent.
+        custom_target = policy.get("target")
+        if isinstance(custom_target, dict):
+            tx = custom_target.get("x")
+            ty = custom_target.get("y")
+            try:
+                if tx is not None:
+                    target["x"] = float(tx)
+                if ty is not None:
+                    target["y"] = float(ty)
+            except Exception:
+                pass
+
+        target["x"] = max(0.0, min(COURT_LEN, target["x"]))
+        target["y"] = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, target["y"]))
+        return profile, target
 
     def _pick_contact_point(self, points):
         if not points:
@@ -182,7 +213,7 @@ class ReturnSolver:
 
         return depth, side
 
-    def register_ball(self, ball_obj, precomputed_return=None, allow_runtime_solve=True):
+    def register_ball(self, ball_obj, precomputed_return=None, allow_runtime_solve=True, return_policy=None):
         if not self.enabled or self.game_state.serve_mode != 1:
             return False
         if ball_obj is None:
@@ -205,6 +236,7 @@ class ReturnSolver:
             return True
 
         if not allow_runtime_solve:
+            self._debug("playback skip: no precomputed return solution")
             self._handled_ball_ids.add(ball_id)
             return False
 
@@ -221,6 +253,7 @@ class ReturnSolver:
             return False
 
         profile, target = self._choose_target_point(landing)
+        profile, target = self._apply_return_policy(profile, target, return_policy)
 
         serve_dt = 0.01
         if len(points) >= 2:
@@ -243,7 +276,8 @@ class ReturnSolver:
         self._handled_ball_ids.add(ball_id)
         return True
 
-    def precompute_return_for_serve(self, speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+    def precompute_return_for_serve(self, speed_mps, yaw_deg, pitch_deg, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, return_policy=None):
+        t0 = time.perf_counter()
         sim = simulate_trajectory(
             speed_mps=speed_mps,
             yaw_deg=yaw_deg,
@@ -262,11 +296,25 @@ class ReturnSolver:
 
         landing = {"x": points[-1][0], "y": points[-1][1]}
         profile, target = self._choose_target_point(landing)
+        profile, target = self._apply_return_policy(profile, target, return_policy)
         serve_type = self._classify_serve_type(landing)
-        cache_key = (serve_type[0], serve_type[1], profile)
+        cache_key = (
+            serve_type[0],
+            serve_type[1],
+            round(float(speed_mps), 2),
+            round(float(yaw_deg), 2),
+            round(float(pitch_deg), 2),
+            profile,
+            round(target["x"], 2),
+            round(target["y"], 2),
+        )
 
         cached = self._precompute_cache.get(cache_key)
         if cached is not None:
+            self._debug(
+                f"precompute cache-hit key={cache_key} serve=({speed_mps:.2f},{yaw_deg:.2f},{pitch_deg:.2f}) "
+                f"elapsed_ms={(time.perf_counter() - t0) * 1000:.2f}"
+            )
             return pycopy.deepcopy(cached)
 
         serve_dt = 0.01
@@ -275,14 +323,22 @@ class ReturnSolver:
             if est_dt > 0:
                 serve_dt = est_dt
 
+        stats = {}
         sol = solve_return_to_target(
             start_xyz=(contact["x"], contact["y"], contact["z"]),
             target_xyz=(target["x"], target["y"], target["z"]),
             shot_profile=profile,
             tol_xy=0.32,
             max_iter_speed=8,
+            debug_stats=stats,
         )
         if not sol or not sol.get("sim"):
+            self._debug(
+                "precompute no-solution "
+                f"serve=({speed_mps:.2f},{yaw_deg:.2f},{pitch_deg:.2f}) "
+                f"profile={profile} target=({target['x']:.2f},{target['y']:.2f}) "
+                f"stats={stats} elapsed_ms={(time.perf_counter() - t0) * 1000:.2f}"
+            )
             return None
 
         sim_points = sol["sim"].get("points", [])
@@ -298,6 +354,13 @@ class ReturnSolver:
         if len(self._precompute_cache) > RETURN_PRECOMPUTE_CACHE_MAX:
             oldest_key = next(iter(self._precompute_cache))
             del self._precompute_cache[oldest_key]
+
+        self._debug(
+            "precompute solved "
+            f"serve=({speed_mps:.2f},{yaw_deg:.2f},{pitch_deg:.2f}) "
+            f"profile={profile} target=({target['x']:.2f},{target['y']:.2f}) "
+            f"stats={stats} elapsed_ms={(time.perf_counter() - t0) * 1000:.2f}"
+        )
 
         return result
 
@@ -330,16 +393,24 @@ class ReturnSolver:
         if ball not in self.game_state.active_balls:
             return
 
+        t0 = time.perf_counter()
+        stats = {}
         sol = solve_return_to_target(
             start_xyz=(req["contact"]["x"], req["contact"]["y"], req["contact"]["z"]),
             target_xyz=(req["target"]["x"], req["target"]["y"], req["target"]["z"]),
             shot_profile=req["profile"],
             tol_xy=0.32,
             max_iter_speed=6,
+            debug_stats=stats,
         )
 
         if not sol or not sol.get("sim"):
             self.ui.update_return_info("Return skipped: no valid trajectory")
+            self._debug(
+                "runtime no-solution "
+                f"profile={req['profile']} target=({req['target']['x']:.2f},{req['target']['y']:.2f}) "
+                f"stats={stats} elapsed_ms={(time.perf_counter() - t0) * 1000:.2f}"
+            )
             self._solve_cooldown = self._min_solve_interval
             return False
 
@@ -354,6 +425,11 @@ class ReturnSolver:
 
         self._planned_returns.append(plan)
         self._planned_returns.sort(key=lambda p: p["move_start_t"])
+        self._debug(
+            "runtime solved "
+            f"profile={req['profile']} target=({req['target']['x']:.2f},{req['target']['y']:.2f}) "
+            f"stats={stats} elapsed_ms={(time.perf_counter() - t0) * 1000:.2f}"
+        )
         self._solve_cooldown = self._min_solve_interval
 
     def _activate_due_plan(self):
@@ -419,6 +495,7 @@ class ReturnSolver:
                 self.player_state = "wait_contact"
             else:
                 self.player_state = "idle"
+                self._player_returned_home_pulse = True
             return
 
         step = self.player_speed * time.dt
@@ -431,23 +508,32 @@ class ReturnSolver:
             self._player_target = self.player_home
             return
 
-        sol = self._active_plan["solution"]
-        contact = self._active_plan["contact"]
+        plan = self._active_plan
+        sol = plan["solution"]
+        contact = plan["contact"]
         points = sol["sim"]["points"]
 
-        self.ball.visible = True
-        self.ball.position = (contact["y"], contact["z"], contact["x"])
-        self.ball.color = color.orange
+        return_entity = Entity(
+            model="sphere",
+            scale=0.15,
+            color=color.orange,
+            position=(contact["y"], contact["z"], contact["x"]),
+        )
+        self._active_return_animations.append(
+            {
+                "entity": return_entity,
+                "points": points,
+                "time": 0.0,
+                "trail_timer": 0.0,
+                "landed": False,
+                "clear_timer": None,
+                "trails": [],
+            }
+        )
 
-        self._anim_points = points
-        self._anim_time = 0.0
-        self._anim_trail_timer = 0.0
-        self._anim_color = color.orange
-        self._animation_active = True
+        plan["state"] = "launched"
 
-        self._active_plan["state"] = "launched"
-
-        target = self._active_plan["target"]
+        target = plan["target"]
         info = (
             f"Return {sol['profile']} | "
             f"to x={target['x']:.2f}, y={target['y']:.2f} | "
@@ -455,6 +541,8 @@ class ReturnSolver:
         )
         self.ui.update_return_info(info)
 
+        # Planner handoff: after launch, free active slot so next return plan can be scheduled.
+        self._active_plan = None
         self.player_state = "recover"
         self._player_target = self.player_home
 
@@ -476,36 +564,56 @@ class ReturnSolver:
 
         self._prune_plans()
 
-        if not self._animation_active or not self._anim_points:
-            return
+        to_remove = []
+        for anim in self._active_return_animations:
+            entity = anim.get("entity")
+            if entity is None:
+                to_remove.append(anim)
+                continue
 
-        self._anim_time += time.dt
-        points = self._anim_points
+            if not anim.get("landed", False):
+                anim["time"] += time.dt
+                points = anim["points"]
+                advanced = False
 
-        for i in range(len(points) - 1):
-            curr_t = points[i][6]
-            next_t = points[i + 1][6]
+                for i in range(len(points) - 1):
+                    curr_t = points[i][6]
+                    next_t = points[i + 1][6]
 
-            if curr_t <= self._anim_time < next_t:
-                frac = (self._anim_time - curr_t) / (next_t - curr_t)
-                curr_pos = points[i]
-                next_pos = points[i + 1]
+                    if curr_t <= anim["time"] < next_t:
+                        frac = (anim["time"] - curr_t) / (next_t - curr_t)
+                        curr_pos = points[i]
+                        next_pos = points[i + 1]
 
-                x = curr_pos[0] + frac * (next_pos[0] - curr_pos[0])
-                y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
-                z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
-                self.ball.position = (y, z, x)
+                        x = curr_pos[0] + frac * (next_pos[0] - curr_pos[0])
+                        y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
+                        z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
+                        entity.position = (y, z, x)
 
-                self._anim_trail_timer += time.dt
-                if self._anim_trail_timer >= RETURN_TRAIL_INTERVAL:
-                    trail = Entity(model="sphere", scale=0.03, color=self._anim_color, position=self.ball.position)
-                    self.game_state.return_trails.append(trail)
-                    self._anim_trail_timer -= RETURN_TRAIL_INTERVAL
-                return
+                        anim["trail_timer"] += time.dt
+                        if anim["trail_timer"] >= RETURN_TRAIL_INTERVAL:
+                            trail = Entity(model="sphere", scale=0.03, color=color.orange, position=entity.position)
+                            anim["trails"].append(trail)
+                            self.game_state.return_trails.append(trail)
+                            anim["trail_timer"] -= RETURN_TRAIL_INTERVAL
+                        advanced = True
+                        break
 
-        final_pos = points[-1]
-        self.ball.position = (final_pos[1], final_pos[2], final_pos[0])
-        self.stop_animation()
-        if self._active_plan is not None:
-            self._active_plan["state"] = "done"
-            self._active_plan = None
+                if not advanced:
+                    final_pos = points[-1]
+                    entity.position = (final_pos[1], final_pos[2], final_pos[0])
+                    anim["landed"] = True
+                    anim["clear_timer"] = RETURN_TRAIL_CLEAR_DELAY
+            else:
+                anim["clear_timer"] = max(0.0, (anim.get("clear_timer") or 0.0) - time.dt)
+                if anim["clear_timer"] <= 0.0:
+                    for t in anim.get("trails", []):
+                        destroy(t)
+                        if t in self.game_state.return_trails:
+                            self.game_state.return_trails.remove(t)
+                    destroy(entity)
+                    to_remove.append(anim)
+
+        for anim in to_remove:
+            if anim in self._active_return_animations:
+                self._active_return_animations.remove(anim)

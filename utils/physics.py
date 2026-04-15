@@ -298,7 +298,7 @@ def find_fastest_clearing_shot(start_x, target_x, start_z, yaw_deg, start_y=0.0,
     return None, None, None
 
 
-def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.25, max_iter_speed=16):
+def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.25, max_iter_speed=16, debug_stats=None):
     """Solve return shot parameters to send shuttle from start_xyz to target_xyz using ODE physics.
 
     Returns dict: {speed, yaw_deg, pitch_deg, sim, error_xy, profile} or None.
@@ -321,102 +321,121 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
             shot_profile = "lift"
 
     if shot_profile == "clear":
-        pitch_candidates = [20, 24, 28, 32, 36]
+        pitch_candidates = [38, 42, 46, 50, 54, 58]
         clearance_min = 0.15
-        apex_min, apex_max = 2.4, 4.9
-        flight_t_min, flight_t_max = 0.60, 1.90
+        apex_rise_min, apex_rise_max = 1.2, 7.5
+        flight_t_min, flight_t_max = 0.70, 3.20
     elif shot_profile == "drive":
-        pitch_candidates = [8, 12, 16, 20]
+        pitch_candidates = [0, 2, 4, 6, 8]
         clearance_min = 0.05
-        apex_min, apex_max = 1.1, 2.6
-        flight_t_min, flight_t_max = 0.25, 1.20
+        apex_rise_min, apex_rise_max = -0.1, 1.0
+        flight_t_min, flight_t_max = 0.20, 1.40
     elif shot_profile == "drop":
-        pitch_candidates = [16, 20, 24, 28]
+        pitch_candidates = [12, 16, 20, 24, 28]
         clearance_min = 0.06
-        apex_min, apex_max = 1.3, 3.0
-        flight_t_min, flight_t_max = 0.35, 1.40
+        apex_rise_min, apex_rise_max = -0.1, 2.0
+        flight_t_min, flight_t_max = 0.30, 1.80
     else:  # lift and fallback
         pitch_candidates = [24, 30, 36, 42]
         clearance_min = 0.10
-        apex_min, apex_max = 2.0, 4.8
+        apex_rise_min, apex_rise_max = 0.8, 4.5
         flight_t_min, flight_t_max = 0.45, 1.80
 
-    yaw_candidates = [base_yaw - 6.0, base_yaw - 3.0, base_yaw, base_yaw + 3.0, base_yaw + 6.0]
+    yaw_deg = base_yaw
 
     best = None
+    stats = {
+        "tested": 0,
+        "no_landing": 0,
+        "apex_reject": 0,
+        "flight_time_reject": 0,
+        "clearance_reject": 0,
+        "candidate_updates": 0,
+        "profile": shot_profile,
+    }
 
-    for yaw_deg in yaw_candidates:
-        for pitch_deg in pitch_candidates:
-            low_speed = 2.0
-            high_speed = 85.0
-            local_best = None
+    for pitch_deg in pitch_candidates:
+        low_speed = 2.0
+        high_speed = 85.0
+        local_best = None
 
-            for _ in range(max_iter_speed):
-                mid_speed = (low_speed + high_speed) / 2.0
-                sim = simulate_trajectory(
-                    speed_mps=mid_speed,
-                    yaw_deg=yaw_deg,
-                    pitch_deg=pitch_deg,
-                    start_x=sx,
-                    start_y=sy,
-                    start_z=sz,
-                    refine_net=True,
-                    refine_heights=False,
-                    max_t=6.0,
-                )
+        for _ in range(max_iter_speed):
+            mid_speed = (low_speed + high_speed) / 2.0
+            stats["tested"] += 1
+            sim = simulate_trajectory(
+                speed_mps=mid_speed,
+                yaw_deg=yaw_deg,
+                pitch_deg=pitch_deg,
+                start_x=sx,
+                start_y=sy,
+                start_z=sz,
+                refine_net=True,
+                refine_heights=False,
+                max_t=6.0,
+            )
 
-                land = sim.get("landing")
-                cross = sim.get("cross_net")
-                apex = sim.get("apex")
-                if not land:
-                    high_speed = mid_speed
-                    continue
+            land = sim.get("landing")
+            cross = sim.get("cross_net")
+            apex = sim.get("apex")
+            if not land:
+                stats["no_landing"] += 1
+                high_speed = mid_speed
+                continue
 
-                apex_z = apex["z"] if apex else None
-                if apex_z is None or apex_z < apex_min or apex_z > apex_max:
-                    if apex_z is not None and apex_z > apex_max:
-                        low_speed = mid_speed
-                    else:
-                        high_speed = mid_speed
-                    continue
-
-                if land["t"] < flight_t_min or land["t"] > flight_t_max:
-                    if land["t"] > flight_t_max:
-                        low_speed = mid_speed
-                    else:
-                        high_speed = mid_speed
-                    continue
-
-                clearance = cross["clearance"] if cross else 0.0
-                if clearance <= clearance_min:
+            apex_z = apex["z"] if apex else None
+            apex_rise = (apex_z - sz) if apex_z is not None else None
+            if apex_rise is None or apex_rise < apex_rise_min or apex_rise > apex_rise_max:
+                stats["apex_reject"] += 1
+                if apex_rise is not None and apex_rise > apex_rise_max:
                     low_speed = mid_speed
-                    continue
+                else:
+                    high_speed = mid_speed
+                continue
 
-                err_x = abs(land["x"] - tx)
-                err_y = abs(land["y"] - ty)
-                err_xy = math.sqrt(err_x * err_x + err_y * err_y)
+            if land["t"] < flight_t_min or land["t"] > flight_t_max:
+                stats["flight_time_reject"] += 1
+                if land["t"] > flight_t_max:
+                    low_speed = mid_speed
+                else:
+                    high_speed = mid_speed
+                continue
 
-                local_best = {
-                    "speed": mid_speed,
-                    "yaw_deg": yaw_deg,
-                    "pitch_deg": pitch_deg,
-                    "sim": sim,
-                    "error_xy": err_xy,
-                    "profile": shot_profile,
-                }
+            clearance = cross["clearance"] if cross else 0.0
+            if clearance <= clearance_min:
+                stats["clearance_reject"] += 1
+                low_speed = mid_speed
+                continue
 
-                if err_x < tol_xy and err_y < tol_xy:
+            err_x = abs(land["x"] - tx)
+            err_y = abs(land["y"] - ty)
+            err_xy = math.sqrt(err_x * err_x + err_y * err_y)
+
+            local_best = {
+                "speed": mid_speed,
+                "yaw_deg": yaw_deg,
+                "pitch_deg": pitch_deg,
+                "sim": sim,
+                "error_xy": err_xy,
+                "profile": shot_profile,
+            }
+            stats["candidate_updates"] += 1
+
+            if err_x < tol_xy and err_y < tol_xy:
+                high_speed = mid_speed
+            else:
+                if land["x"] < tx:
                     high_speed = mid_speed
                 else:
-                    if land["x"] < tx:
-                        high_speed = mid_speed
-                    else:
-                        low_speed = mid_speed
+                    low_speed = mid_speed
 
-            candidate = local_best
-            if not candidate:
-                continue
-            if best is None or candidate["error_xy"] < best["error_xy"]:
-                best = candidate
+        candidate = local_best
+        if not candidate:
+            continue
+        if best is None or candidate["error_xy"] < best["error_xy"]:
+            best = candidate
+
+    if isinstance(debug_stats, dict):
+        debug_stats.clear()
+        debug_stats.update(stats)
 
     return best

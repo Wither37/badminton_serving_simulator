@@ -3,7 +3,7 @@ from utils.physics import simulate_trajectory
 from utils.config import *
 
 class BallFlight:
-    def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, solver=None, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
+    def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
         self.speed = speed_mps
         self.yaw = yaw_deg
         self.pitch = pitch_deg
@@ -11,14 +11,10 @@ class BallFlight:
         self.ui = ui
         self.simulator = simulator
         self.state = state
-        self.solver = solver
         self.start_x = start_x
         self.start_y = start_y
         self.start_z = start_z
         self.landing = None
-        self.return_presets = []
-        self.return_solutions_ready = False
-        self.serve_sim = None
 
         sim = simulate_trajectory(
             speed_mps, yaw_deg, pitch_deg,
@@ -28,6 +24,7 @@ class BallFlight:
         self.simulation_time = 0.0
         self.trail_timer = 0.0
         self.finished = False
+        self.trail_clear_timer = None
 
         self.entity = Entity(
             model='sphere',
@@ -39,6 +36,16 @@ class BallFlight:
         self.trail_entities = []
 
     def update(self):
+        if self.finished:
+            if self.trail_clear_timer is not None:
+                self.trail_clear_timer = max(0.0, self.trail_clear_timer - time.dt)
+                if self.trail_clear_timer <= 0.0:
+                    for e in self.trail_entities:
+                        destroy(e)
+                    self.trail_entities.clear()
+                    self.trail_clear_timer = None
+            return
+
         self.simulation_time += time.dt
 
         for i in range(len(self.points) - 1):
@@ -104,6 +111,7 @@ class BallFlight:
         self.simulator.client.publish(self.simulator.status_topic, "serve=done")
 
         self.finished = True
+        self.trail_clear_timer = SERVE_TRAIL_CLEAR_DELAY
 
     def destroy(self):
         for e in self.trail_entities:
