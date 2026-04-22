@@ -78,6 +78,32 @@ def _max_view_mode():
     return 3 if state.show_returns else 2
 
 
+def _resolve_simulator_position_global(simulator_position=None):
+    gx = SIMULATOR_DEFAULT_X
+    gy = SIMULATOR_DEFAULT_Y
+    gz = SIMULATOR_DEFAULT_Z
+
+    if isinstance(simulator_position, dict):
+        try:
+            if simulator_position.get('x') is not None:
+                gx = float(simulator_position.get('x'))
+            if simulator_position.get('y') is not None:
+                gy = float(simulator_position.get('y'))
+            if simulator_position.get('z') is not None:
+                gz = float(simulator_position.get('z'))
+        except Exception:
+            pass
+
+    return {'x': gx, 'y': gy, 'z': gz}
+
+
+def _simulator_global_to_physics_start(simulator_position=None):
+    # Global frame: X(width), Y(depth), Z(height)
+    # Physics frame: x(depth), y(width), z(height)
+    pos = _resolve_simulator_position_global(simulator_position)
+    return pos['y'], pos['x'], pos['z']
+
+
 def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True, return_policy=None):
     ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
     state.active_balls.append(ball)
@@ -148,6 +174,7 @@ def reset_before_menu_execution():
 def enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=False):
     for idx, drill in enumerate(drills):
         params = drill.get('parameters', {})
+        simulator_position = drill.get('simulator_position')
         action_item = {
             'speed': params.get('speed', 30.0),
             'yaw': params.get('yaw', 0.0),
@@ -155,6 +182,7 @@ def enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=False):
             'interval_ms': drill.get('interval', 1000),
             'return_plan': (precomputed_map or {}).get(idx),
             'return_policy': drill.get('simulator_return_policy'),
+            'simulator_position': simulator_position,
             # In precompute mode, never do runtime solving during playback.
             'precompute_locked': precompute_locked,
         }
@@ -212,13 +240,14 @@ def update():
 
             drill = state.precompute_drills[state.precompute_index]
             params = drill.get('parameters', {})
+            start_x, start_y, start_z = _simulator_global_to_physics_start(drill.get('simulator_position'))
             state.precompute_returns[state.precompute_index] = solver.precompute_return_for_serve(
                 speed_mps=params.get('speed', 30.0),
                 yaw_deg=params.get('yaw', 0.0),
                 pitch_deg=params.get('pitch', 20.0),
-                start_x=0.0,
-                start_y=0.0,
-                start_z=RELEASE_HEIGHT,
+                start_x=start_x,
+                start_y=start_y,
+                start_z=start_z,
                 return_policy=drill.get('simulator_return_policy'),
             )
             state.precompute_index += 1
@@ -292,12 +321,16 @@ def update():
                 state.current_pitch = params['pitch']
                 state.serve_timer -= state.serve_interval
                 state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
+                start_x, start_y, start_z = _simulator_global_to_physics_start(params.get('simulator_position'))
 
                 create_ball(
                     state.current_speed,
                     state.current_yaw,
                     state.current_pitch,
                     state.serve_interval,
+                    start_x=start_x,
+                    start_y=start_y,
+                    start_z=start_z,
                     precomputed_return=params.get('return_plan'),
                     allow_runtime_return_solve=not params.get('precompute_locked', False),
                     return_policy=params.get('return_policy'),
@@ -450,11 +483,15 @@ def input(key):
                 state.current_yaw = params['yaw']
                 state.current_pitch = params['pitch']
                 state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
+                start_x, start_y, start_z = _simulator_global_to_physics_start(params.get('simulator_position'))
                 create_ball(
                     state.current_speed,
                     state.current_yaw,
                     state.current_pitch,
                     state.serve_interval,
+                    start_x=start_x,
+                    start_y=start_y,
+                    start_z=start_z,
                     precomputed_return=params.get('return_plan'),
                     allow_runtime_return_solve=not params.get('precompute_locked', False),
                     return_policy=params.get('return_policy'),
@@ -522,7 +559,7 @@ if __name__ == '__main__':
     # Create scene
     ui = UIManager()
     court = Court()
-    ball = Entity(model='sphere', position=(0, RELEASE_HEIGHT, 0), color=color.yellow, scale=0.15)
+    ball = Entity(model='sphere', position=(SIMULATOR_DEFAULT_X, SIMULATOR_DEFAULT_Z, SIMULATOR_DEFAULT_Y), color=color.yellow, scale=0.15)
     solver = ReturnSolver(ball, ui, state)
 
     ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,

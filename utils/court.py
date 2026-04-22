@@ -26,7 +26,7 @@ class Court:
             scale=(COURT_W, COURT_LEN),
             color=color.rgb(40/255, 110/255, 40/255),
             rotation_x=90,
-            position=(0, 0.01, COURT_LEN / 2),
+            position=(0, 0.01, 0),
             collider='box'
         )
         self.entities.append(self.court)
@@ -76,7 +76,7 @@ class Court:
         line = Entity(
             model='quad', color=color.white,
             scale=(LINE_THICKNESS, COURT_LEN),
-            position=(x_pos, LINE_Y_OFFSET, COURT_LEN / 2),
+            position=(x_pos, LINE_Y_OFFSET, 0),
             rotation_x=90
         )
         self.entities.append(line)

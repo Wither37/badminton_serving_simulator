@@ -81,7 +81,7 @@ class ReturnSolver:
 
     def _intercept_position_from_contact(self, contact):
         # Keep player slightly behind contact so the shuttle is struck in front of the body.
-        x = min(COURT_LEN, contact["x"] + RETURN_PLAYER_CONTACT_BACK_OFFSET)
+        x = min(BACK_BASELINE, contact["x"] + RETURN_PLAYER_CONTACT_BACK_OFFSET)
         return Vec3(contact["y"], self.return_player.y, x)
 
     def clear_entities(self):
@@ -157,19 +157,20 @@ class ReturnSolver:
             target = {"x": depth_x_for_profile(profile), "y": 0.0, "z": 0.0}
 
         # Optional absolute target override. When present, ignore default_x/side intent.
+        # Input target follows global coordinates: x=width, y=depth.
         custom_target = policy.get("target")
         if isinstance(custom_target, dict):
-            tx = custom_target.get("x")
-            ty = custom_target.get("y")
+            gx = custom_target.get("x")
+            gy = custom_target.get("y")
             try:
-                if tx is not None:
-                    target["x"] = float(tx)
-                if ty is not None:
-                    target["y"] = float(ty)
+                if gy is not None:
+                    target["x"] = float(gy)
+                if gx is not None:
+                    target["y"] = float(gx)
             except Exception:
                 pass
 
-        target["x"] = max(0.0, min(COURT_LEN, target["x"]))
+        target["x"] = max(-BACK_BASELINE, min(BACK_BASELINE, target["x"]))
         target["y"] = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, target["y"]))
         return profile, target
 

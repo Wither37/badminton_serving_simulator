@@ -1,24 +1,40 @@
-# ----- 1) 尺寸常數 (Official Court Dimensions) -----
-# See: https://en.wikipedia.org/wiki/Badminton_court
-COURT_LEN = 13.4                # m
-COURT_W   = 6.1                 # m (Doubles width)
-HALF_W    = COURT_W / 2
-NET_X     = COURT_LEN / 2       # 6.7m
-NET_H     = 1.524               # m (Center height)
+# ----- 1) Court Geometry (Net-Centered Global Coordinates) -----
+# Global frame used by menus/policies:
+#   X = width (left/right), Y = court length/depth, Z = height.
+# Ursina mapping remains (world_x, world_y, world_z) = (X, Z, Y).
+COURT_LENGTH = 13.40
+COURT_WIDTH_DOUBLES = 6.10
+COURT_WIDTH_SINGLES = 5.18
 
-SINGLES_W = 5.18                # m
-SINGLES_HALF_W = SINGLES_W / 2  # 2.59m
+HALF_LEN = COURT_LENGTH / 2.0              # 6.70
+HALF_WIDTH_DOUBLES = COURT_WIDTH_DOUBLES / 2.0  # 3.05
+HALF_WIDTH_SINGLES = COURT_WIDTH_SINGLES / 2.0  # 2.59
 
-SHORT_SERVICE_DIST = 1.98       # m (from net)
-LONG_SERVICE_DOUBLES_DIST = 0.76 # m (from baseline)
+SHORT_SERVICE_LINE = 1.98                  # from net toward each baseline
+DOUBLES_LONG_SERVICE_LINE = HALF_LEN - 0.76  # 5.94 from net
+BACK_BASELINE = HALF_LEN                   # 6.70 from net
 
-# Z-coordinates for horizontal lines
-Z_BASELINE_NEAR = 0.0
-Z_BASELINE_FAR = COURT_LEN
-Z_SHORT_SERVICE_NEAR = NET_X - SHORT_SERVICE_DIST # 4.72 m
-Z_SHORT_SERVICE_FAR  = NET_X + SHORT_SERVICE_DIST # 8.68 m
-Z_LONG_SERVICE_DOUBLES_NEAR = LONG_SERVICE_DOUBLES_DIST    # 0.76 m
-Z_LONG_SERVICE_DOUBLES_FAR  = COURT_LEN - LONG_SERVICE_DOUBLES_DIST # 12.64 m
+NET_HEIGHT_POSTS = 1.55
+NET_HEIGHT_CENTER = 1.524
+
+# Compatibility aliases for existing solver/render code.
+COURT_LEN = COURT_LENGTH
+COURT_W = COURT_WIDTH_DOUBLES
+SINGLES_W = COURT_WIDTH_SINGLES
+HALF_W = HALF_WIDTH_DOUBLES
+SINGLES_HALF_W = HALF_WIDTH_SINGLES
+
+# Physics depth axis origin now at net center.
+NET_X = 0.0
+NET_H = NET_HEIGHT_CENTER
+
+# Court marking positions along global Y / Ursina Z.
+Z_BASELINE_NEAR = -BACK_BASELINE
+Z_BASELINE_FAR = BACK_BASELINE
+Z_SHORT_SERVICE_NEAR = -SHORT_SERVICE_LINE
+Z_SHORT_SERVICE_FAR = SHORT_SERVICE_LINE
+Z_LONG_SERVICE_DOUBLES_NEAR = -DOUBLES_LONG_SERVICE_LINE
+Z_LONG_SERVICE_DOUBLES_FAR = DOUBLES_LONG_SERVICE_LINE
 
 # Line constants
 LINE_THICKNESS = 0.04           # 40mm
@@ -26,6 +42,11 @@ LINE_Y_OFFSET  = 0.02          # To prevent z-fighting (flickering)
 
 MAX_SERVE_TRAIL   = 3
 SERVE_TRAIL_CLEAR_DELAY = 0.20  # seconds after serve landing before clearing serve trajectory
+
+# Default simulator launch point in global coordinates (X, Y, Z).
+SIMULATOR_DEFAULT_X = 0.0
+SIMULATOR_DEFAULT_Y = -BACK_BASELINE
+SIMULATOR_DEFAULT_Z = 1.2
 
 # ----- 2) 物理模擬參數 (Physics) -----
 G = 9.81
@@ -37,9 +58,11 @@ TRAIL_INTERVAL = 0.01
 RETURN_POINT_STEP_MULT = 10.0      # >1.0 means fewer return trajectory points than serve
 RETURN_TRAIL_INTERVAL = 0.02      # larger interval means fewer return trail spheres
 RETURN_TRAIL_CLEAR_DELAY = 0.20   # seconds after return landing before clearing return trajectory
-RETURN_TARGET_X_CLEAR = 0.15      # deeper backcourt target (near baseline x=0)
-RETURN_TARGET_X_DRIVE = 0.50
-RETURN_TARGET_X_LIFT = 5.20
+# Return targets along physics depth axis (same as global Y).
+# Near side is negative after net-centered migration.
+RETURN_TARGET_X_CLEAR = -6.55
+RETURN_TARGET_X_DRIVE = -6.20
+RETURN_TARGET_X_LIFT = -1.50
 RETURN_PLAYER_CONTACT_BACK_OFFSET = 0.50  # meters; player stands behind contact point
 PRECOMPUTE_SERVE_WARMUP = 0.50    # seconds to wait after precompute before first serve
 RETURN_BLOCK_ON_PLAYER_RECOVER = True  # if True, next serve waits until player fully returns home
@@ -54,4 +77,4 @@ RETURN_CAMERA_PITCH_MAX = 70.0
 RETURN_PRECOMPUTE_CACHE_MAX = 128
 
 # Temporary debug instrumentation for return solving
-RETURN_DEBUG_LOG = True
+RETURN_DEBUG_LOG = False

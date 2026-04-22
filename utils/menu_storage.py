@@ -162,6 +162,9 @@ def get_menu_drills_for_simulator(menu_id: str) -> Optional[List[Dict[str, Any]]
 
     sim_meta = menu.get("simulator") or {}
     default_policy = sim_meta.get("default_return_policy")
+    menu_simulator_position = (payload.get("menu") or {}).get("simulator_position")
+    if not isinstance(menu_simulator_position, dict):
+        menu_simulator_position = None
     drill_overrides = sim_meta.get("drill_overrides") or {}
 
     for idx, drill in enumerate(runtime_drills):
@@ -178,6 +181,8 @@ def get_menu_drills_for_simulator(menu_id: str) -> Optional[List[Dict[str, Any]]
 
         if policy is not None:
             drill["simulator_return_policy"] = policy
+        if menu_simulator_position is not None:
+            drill["simulator_position"] = copy.deepcopy(menu_simulator_position)
 
     return runtime_drills
 
