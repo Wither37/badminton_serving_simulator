@@ -59,15 +59,19 @@ def apply_view_mode():
     elif state.is_player_view == 1:
         player.enabled = False
         camera.parent = scene
-        camera.position = (0, 1.8, -4.0)
-        camera.rotation = (0, 0, 0)
-        mouse.locked = False
+        camera.position = _serve_machine_camera_position()
+        state.return_cam_yaw = 0.0
+        state.return_cam_pitch = 0.0
+        camera.rotation = (state.return_cam_pitch, state.return_cam_yaw, 0)
+        mouse.locked = True
     elif state.is_player_view == 2:
         player.enabled = False
         camera.parent = scene
-        camera.position = (0, 1.7, 14)
-        camera.rotation = (0, 180, 0)
-        mouse.locked = False
+        camera.position = (0, 3.0, 12)
+        state.return_cam_yaw = 180.0
+        state.return_cam_pitch = 0.0
+        camera.rotation = (state.return_cam_pitch, state.return_cam_yaw, 0)
+        mouse.locked = True
     elif state.is_player_view == 3:
         player.enabled = False
         camera.parent = scene
@@ -79,9 +83,9 @@ def _max_view_mode():
 
 
 def _resolve_simulator_position_global(simulator_position=None):
-    gx = SIMULATOR_DEFAULT_X
-    gy = SIMULATOR_DEFAULT_Y
-    gz = SIMULATOR_DEFAULT_Z
+    gx = SIMULATOR_DEFAULT_POSITION["x"]
+    gy = SIMULATOR_DEFAULT_POSITION["y"]
+    gz = SIMULATOR_DEFAULT_POSITION["z"]
 
     if isinstance(simulator_position, dict):
         try:
@@ -108,6 +112,21 @@ def _set_serve_machine_marker_from_physics_start(start_x, start_y, start_z):
     # Ursina mapping: (world_x, world_y, world_z) = (physics_y, physics_z, physics_x)
     if 'serve_machine_marker' in globals() and serve_machine_marker is not None:
         serve_machine_marker.position = (start_y, start_z, start_x)
+    if 'camera' in globals() and state.is_player_view == 1:
+        camera.position = _serve_machine_camera_position(start_x, start_y, start_z)
+
+
+def _serve_machine_camera_position(start_x=None, start_y=None, start_z=None):
+    if start_x is None or start_y is None or start_z is None:
+        if 'serve_machine_marker' in globals() and serve_machine_marker is not None:
+            machine_world = serve_machine_marker.position
+        else:
+            default_start_x, default_start_y, default_start_z = _simulator_global_to_physics_start()
+            machine_world = Vec3(default_start_y, default_start_z, default_start_x)
+    else:
+        machine_world = Vec3(start_y, start_z, start_x)
+
+    return Vec3(machine_world.x, machine_world.y, machine_world.z)
 
 
 def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True, return_policy=None):
@@ -120,7 +139,7 @@ def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.
         allow_runtime_solve=allow_runtime_return_solve,
         return_policy=return_policy,
     )
-    if len(state.active_balls) > MAX_SERVE_TRAIL:
+    if len(state.active_balls) > SERVE_VISUAL["max_active_balls"]:
         oldest = state.active_balls.pop(0)
         oldest.destroy()
 
@@ -227,14 +246,17 @@ def queue_menu_actions(menu_id, precompute_returns=False):
 
 def update():
     """主更新迴圈"""
-    if state.is_player_view == 3 and state.show_returns:
-        state.return_cam_yaw += mouse.velocity[0] * RETURN_CAMERA_SENSITIVITY
-        state.return_cam_pitch -= mouse.velocity[1] * RETURN_CAMERA_SENSITIVITY
-        state.return_cam_pitch = max(RETURN_CAMERA_PITCH_MIN, min(RETURN_CAMERA_PITCH_MAX, state.return_cam_pitch))
+    if state.is_player_view in (1, 2) or (state.is_player_view == 3 and state.show_returns):
+        state.return_cam_yaw += mouse.velocity[0] * RETURN_CAMERA["sensitivity"]
+        state.return_cam_pitch -= mouse.velocity[1] * RETURN_CAMERA["sensitivity"]
+        state.return_cam_pitch = max(RETURN_CAMERA["pitch_min"], min(RETURN_CAMERA["pitch_max"], state.return_cam_pitch))
 
-        rp = solver.return_player.position
         camera.parent = scene
-        camera.position = (rp.x, RETURN_CAMERA_HEIGHT, rp.z)
+        if state.is_player_view == 1:
+            camera.position = _serve_machine_camera_position()
+        elif state.is_player_view == 3:
+            rp = solver.return_player.position
+            camera.position = (rp.x, RETURN_CAMERA["height"], rp.z)
         camera.rotation = (state.return_cam_pitch, state.return_cam_yaw, 0)
 
     if state.precompute_in_progress:
@@ -276,7 +298,7 @@ def update():
             )
             state.manual_menu_running = True
             state.serve_timer = state.serve_interval
-            state.serve_start_cooldown = PRECOMPUTE_SERVE_WARMUP
+            state.serve_start_cooldown = RETURN_RUNTIME["precompute_serve_warmup"]
             print(f"[App] Executing queued menu {finished_menu_id} ({total} actions)")
             clear_precompute_state()
             state.precompute_hide_info_on_first_serve = True
@@ -288,7 +310,7 @@ def update():
 
         hold_for_warmup = state.serve_start_cooldown > 0.0
         active_serve_in_flight = any(not b.finished for b in state.active_balls)
-        strict_player_return_gate = state.manual_menu_running and state.show_returns and RETURN_BLOCK_ON_PLAYER_RECOVER
+        strict_player_return_gate = state.manual_menu_running and state.show_returns and RETURN_PLAYER["block_on_recover"]
 
         if strict_player_return_gate:
             # Strict rally sequence in return mode:
@@ -568,7 +590,11 @@ if __name__ == '__main__':
     court = Court()
     serve_machine_marker = Entity(
         model='cube',
-        position=(SIMULATOR_DEFAULT_X, SIMULATOR_DEFAULT_Z, SIMULATOR_DEFAULT_Y),
+        position=(
+            SIMULATOR_DEFAULT_POSITION["x"],
+            SIMULATOR_DEFAULT_POSITION["z"],
+            SIMULATOR_DEFAULT_POSITION["y"],
+        ),
         color=color.black,
         # Manual tune point for marker size:
         # change this scale tuple directly to resize the box.

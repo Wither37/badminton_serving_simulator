@@ -5,22 +5,27 @@
 COURT_LENGTH = 13.40
 COURT_WIDTH_DOUBLES = 6.10
 COURT_WIDTH_SINGLES = 5.18
+COURT = {
+    "length": COURT_LENGTH,
+    "width_doubles": COURT_WIDTH_DOUBLES,
+    "width_singles": COURT_WIDTH_SINGLES,
+    "short_service_line": 1.98,
+    "net_height_center": 1.524,
+}
 
-HALF_LEN = COURT_LENGTH / 2.0              # 6.70
-HALF_WIDTH_DOUBLES = COURT_WIDTH_DOUBLES / 2.0  # 3.05
-HALF_WIDTH_SINGLES = COURT_WIDTH_SINGLES / 2.0  # 2.59
+HALF_LEN = COURT_LENGTH / 2.0
+HALF_WIDTH_DOUBLES = COURT_WIDTH_DOUBLES / 2.0
+HALF_WIDTH_SINGLES = COURT_WIDTH_SINGLES / 2.0
 
-SHORT_SERVICE_LINE = 1.98                  # from net toward each baseline
-DOUBLES_LONG_SERVICE_LINE = HALF_LEN - 0.76  # 5.94 from net
-BACK_BASELINE = HALF_LEN                   # 6.70 from net
+SHORT_SERVICE_LINE = COURT["short_service_line"]
+DOUBLES_LONG_SERVICE_LINE = HALF_LEN - 0.76
+BACK_BASELINE = HALF_LEN
 
-NET_HEIGHT_POSTS = 1.55
-NET_HEIGHT_CENTER = 1.524
+NET_HEIGHT_CENTER = COURT["net_height_center"]
 
 # Compatibility aliases for existing solver/render code.
 COURT_LEN = COURT_LENGTH
 COURT_W = COURT_WIDTH_DOUBLES
-SINGLES_W = COURT_WIDTH_SINGLES
 HALF_W = HALF_WIDTH_DOUBLES
 SINGLES_HALF_W = HALF_WIDTH_SINGLES
 
@@ -36,55 +41,118 @@ Z_SHORT_SERVICE_FAR = SHORT_SERVICE_LINE
 Z_LONG_SERVICE_DOUBLES_NEAR = -DOUBLES_LONG_SERVICE_LINE
 Z_LONG_SERVICE_DOUBLES_FAR = DOUBLES_LONG_SERVICE_LINE
 
-# Line constants
-LINE_THICKNESS = 0.04           # 40mm
-LINE_Y_OFFSET  = 0.02          # To prevent z-fighting (flickering)
+# Line constants.
+LINE_THICKNESS = 0.04
+LINE_Y_OFFSET = 0.02
 
-MAX_SERVE_TRAIL   = 3
-SERVE_TRAIL_CLEAR_DELAY = 0.20  # seconds after serve landing before clearing serve trajectory
+SERVE_VISUAL = {
+    "max_active_balls": 3,
+    "trail_clear_delay": 0.20,
+    "hide_after_return_contact": True,
+}
 
 # Default simulator launch point in global coordinates (X, Y, Z).
-SIMULATOR_DEFAULT_X = 0.0
-SIMULATOR_DEFAULT_Y = -BACK_BASELINE
-SIMULATOR_DEFAULT_Z = 1.2
+SIMULATOR_DEFAULT_POSITION = {
+    "x": 0.0,
+    "y": -BACK_BASELINE,
+    "z": 1.2,
+}
 
-# ----- 2) 物理模擬參數 (Physics) -----
+# ----- 2) Physics -----
 G = 9.81
-DRAG_K = 0.2           # Your drag coefficient
-RELEASE_HEIGHT = 1.2    # Your release height
+DRAG_K = 0.2
+RELEASE_HEIGHT = 1.2
 TRAIL_INTERVAL = 0.01
+PHYSICS = {
+    "gravity": G,
+    "drag_k": DRAG_K,
+    "release_height": RELEASE_HEIGHT,
+    "trail_interval": TRAIL_INTERVAL,
+}
 
-# Return animation tuning
-RETURN_POINT_STEP_MULT = 10.0      # >1.0 means fewer return trajectory points than serve
-RETURN_TRAIL_INTERVAL = 0.02      # larger interval means fewer return trail spheres
-RETURN_TRAIL_CLEAR_DELAY = 0.20   # seconds after return landing before clearing return trajectory
-# Return targets along physics depth axis (same as global Y).
-# Near side is negative after net-centered migration.
-RETURN_TARGET_X_CLEAR = -6.55
-RETURN_TARGET_X_DRIVE = -6.20
-RETURN_TARGET_X_LIFT = -1.50
-RETURN_TARGET_X_BLOCK = -2.15
-RETURN_PLAYER_CONTACT_BACK_OFFSET = 0.50  # meters; player stands behind contact point
-RETURN_BLOCK_CONTACT_SIDE_OFFSET = 0.50   # player stays this much inside contact laterally for block
-RETURN_DRIVE_CONTACT_BACK_OFFSET = 0.50   # contact depth is this much in front of player home depth
-RETURN_DRIVE_CONTACT_SIDE_OFFSET = 0.50   # player stays this much inside contact laterally for drive drill mode
-RETURN_DRIVE_CONTACT_HEIGHT_MIN = 1.35    # head-height band (with margin)
-RETURN_DRIVE_CONTACT_HEIGHT_MAX = 2.25
-RETURN_PLAYER_HOME_WIDTH = 0.0            # global width axis (left/right)
-RETURN_PLAYER_HOME_HEIGHT = 0.9           # player marker center height
-RETURN_PLAYER_HOME_DEPTH = NET_X + 3.5    # physics depth axis (from net toward player side)
-RETURN_REACTION_DELAY_AFTER_SERVE = 0.3  # seconds; start moving shortly after serve
-PRECOMPUTE_SERVE_WARMUP = 0.50    # seconds to wait after precompute before first serve
-RETURN_BLOCK_ON_PLAYER_RECOVER = True  # if True, next serve waits until player fully returns home
+# ----- 3) Return Behavior -----
+# Return animation tuning.
+RETURN_ANIMATION = {
+    "point_step_mult": 10.0,
+    "trail_interval": 0.02,
+    "trail_clear_delay": 0.20,
+}
 
-# Return-follow camera (available only when dynamic return mode is ON)
-RETURN_CAMERA_HEIGHT = 1.75
-RETURN_CAMERA_SENSITIVITY = 140.0
-RETURN_CAMERA_PITCH_MIN = -70.0
-RETURN_CAMERA_PITCH_MAX = 70.0
+# Legacy fallback targets along physics depth axis (same as global Y).
+# Explicit return_policy.target remains the expected menu contract.
+RETURN_DEFAULT_TARGETS = {
+    "clear": {"x": -6.55, "y": 0.0, "z": 0.0},
+    "drive": {"x": -6.20, "y": 0.0, "z": 0.0},
+    "lift": {"x": -1.50, "y": 0.0, "z": 0.0},
+}
 
-# Return precompute cache
-RETURN_PRECOMPUTE_CACHE_MAX = 128
+RETURN_SHOT_CLEARANCE_MIN = 0.03
+RETURN_PROFILES = {
+    "lift": {
+        "height_range_m": [0.30, 0.50],
+        "contact_offset_m": {"x": 0.30, "y": 1.20},
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": None},
+        "preferred_speed_mps": 35.0,
+    },
+    "net_soft": {
+        "height_range_m": [1.10, 1.35],
+        "contact_offset_m": {"x": 0.30, "y": 1.20},
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": 0.10},
+    },
+    "smash": {
+        "height_range_m": [3.00, 3.20],
+        "contact_offset_m": {"x": 0.00, "y": 0.50},
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": None},
+    },
+    "clear": {
+        "height_range_m": [2.50, 2.80],
+        "contact_offset_m": {"x": 0.00, "y": 0.50},
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": None},
+    },
+    "drop": {
+        "height_range_m": [2.50, 2.80],
+        "contact_offset_m": {"x": 0.00, "y": 0.50},
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": 0.15},
+    },
+    "drive": {
+        "height_range_m": [1.50, 1.80],
+        "contact_offset_m": {"x": 0.30, "y": 0.50},
+        "depth_lock_to_home": True,
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": 0.30},
+    },
+    "block": {
+        "height_range_m": [1.00, 1.20],
+        "contact_offset_m": {"x": 0.80, "y": 0.00},
+        "depth_lock_to_home": True,
+        "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": 0.30},
+    },
+}
 
-# Temporary debug instrumentation for return solving
+RETURN_RUNTIME = {
+    "precompute_serve_warmup": 0.50,
+    "precompute_cache_max": 128,
+}
+RETURN_PLAYER = {
+    "home": {
+        "width": 0.0,
+        "height": 0.9,
+        "depth": NET_X + 3.5,
+    },
+    "movement": {
+        "max_speed": 6,
+        "accel": 15.0,
+        "decel": 30.0,
+    },
+    "reaction_delay": 0.1,
+    "block_on_recover": True,
+}
+
+RETURN_CAMERA = {
+    "height": 1.75,
+    "sensitivity": 140.0,
+    "pitch_min": -70.0,
+    "pitch_max": 70.0,
+}
+
+# Temporary debug instrumentation for return solving.
 RETURN_DEBUG_LOG = False

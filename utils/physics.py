@@ -298,6 +298,20 @@ def find_fastest_clearing_shot(start_x, target_x, start_z, yaw_deg, start_y=0.0,
     return None, None, None
 
 
+def _return_candidate_rank(candidate, preferred_speed=None):
+    if candidate is None:
+        return (inf, inf, inf)
+    if preferred_speed is not None and candidate.get("within_tol"):
+        return (0, abs(float(candidate["speed"]) - float(preferred_speed)), candidate["error_xy"])
+    if candidate.get("within_tol"):
+        return (1, candidate["error_xy"], abs(float(candidate["speed"]) - float(preferred_speed or candidate["speed"])))
+    return (2, candidate["error_xy"], 0.0)
+
+
+def _is_better_return_candidate(candidate, current, preferred_speed=None):
+    return _return_candidate_rank(candidate, preferred_speed) < _return_candidate_rank(current, preferred_speed)
+
+
 def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.25, max_iter_speed=16, debug_stats=None):
     """Solve return shot parameters to send shuttle from start_xyz to target_xyz using ODE physics.
 
@@ -320,45 +334,44 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
         else:
             shot_profile = "lift"
 
+    profile_cfg = RETURN_PROFILES.get(shot_profile) or {}
+    clearance_cfg = profile_cfg.get("clearance_m") or {}
+    clearance_min = float(clearance_cfg.get("min", RETURN_SHOT_CLEARANCE_MIN))
+    clearance_max = clearance_cfg.get("max")
+    preferred_speed = profile_cfg.get("preferred_speed_mps")
+
     if shot_profile == "clear":
         pitch_candidates = [38, 42, 46, 50, 54, 58]
-        clearance_min = 0.15
         apex_rise_min, apex_rise_max = 1.2, 7.5
         flight_t_min, flight_t_max = 0.70, 3.20
     elif shot_profile == "drive":
         pitch_candidates = [0, 2, 4, 6, 8]
-        clearance_min = 0.05
         apex_rise_min, apex_rise_max = -0.1, 1.0
         flight_t_min, flight_t_max = 0.20, 1.40
     elif shot_profile == "drop":
         pitch_candidates = [12, 16, 20, 24, 28]
-        clearance_min = 0.04
         apex_rise_min, apex_rise_max = -0.1, 2.0
         flight_t_min, flight_t_max = 0.30, 1.80
     elif shot_profile == "smash":
         # Smash return: fast, flatter trajectory, low net margin.
         pitch_candidates = [-18, -14, -10, -6, -2]
-        clearance_min = 0.015
         apex_rise_min, apex_rise_max = -1.0, 1.0
         flight_t_min, flight_t_max = 0.12, 0.85
     elif shot_profile == "net_soft":
         # Soft net return: medium contact height, gentle trajectory, low pace,
         # just enough clearance to cross and tumble into the front court.
         pitch_candidates = [16, 20, 24, 28, 32, 36, 40, 44]
-        clearance_min = 0.01
         apex_rise_min, apex_rise_max = -0.05, 3.2
         flight_t_min, flight_t_max = 0.35, 2.20
     elif shot_profile == "block":
         # Sideways-only block contacts can be relatively low; allow a wider arc search
         # so the solver can still find legal net-clearing trajectories.
         pitch_candidates = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
-        clearance_min = 0.005
         apex_rise_min, apex_rise_max = -0.3, 3.5
         flight_t_min, flight_t_max = 0.18, 1.60
     else:  # lift and fallback
-        pitch_candidates = [34, 40, 46, 52, 58, 64, 70]
-        clearance_min = 0.08
-        apex_rise_min, apex_rise_max = 0.5, 10.0
+        pitch_candidates = [62, 60, 64, 66]
+        apex_rise_min, apex_rise_max = 2.0, 12.0
         flight_t_min, flight_t_max = 0.55, 3.20
 
     yaw_deg = base_yaw
@@ -370,6 +383,10 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
         "apex_reject": 0,
         "flight_time_reject": 0,
         "clearance_reject": 0,
+        "clearance_low_reject": 0,
+        "clearance_high_reject": 0,
+        "short_zone_reject": 0,
+        "net_shape_reject": 0,
         "candidate_updates": 0,
         "profile": shot_profile,
     }
@@ -423,23 +440,33 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
             clearance = cross["clearance"] if cross else 0.0
             if clearance <= clearance_min:
                 stats["clearance_reject"] += 1
+                stats["clearance_low_reject"] += 1
                 low_speed = mid_speed
+                continue
+            if clearance_max is not None and clearance > clearance_max:
+                stats["clearance_reject"] += 1
+                stats["clearance_high_reject"] += 1
+                high_speed = mid_speed
                 continue
 
             if shot_profile == "net_soft":
                 # Keep landing within the short service-line zone on the receiver side.
                 if tx < NET_X:
                     if land["x"] < -SHORT_SERVICE_LINE:
+                        stats["short_zone_reject"] += 1
                         high_speed = mid_speed
                         continue
                     if land["x"] >= NET_X:
+                        stats["short_zone_reject"] += 1
                         low_speed = mid_speed
                         continue
                 else:
                     if land["x"] > SHORT_SERVICE_LINE:
+                        stats["short_zone_reject"] += 1
                         high_speed = mid_speed
                         continue
                     if land["x"] <= NET_X:
+                        stats["short_zone_reject"] += 1
                         low_speed = mid_speed
                         continue
 
@@ -450,22 +477,27 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
                 cross_t = cross["t"] if cross else 0.0
                 same_side_as_hitter = (apex_x - NET_X) * (sx - NET_X) > 0.0
                 if not same_side_as_hitter or apex_t >= cross_t:
+                    stats["net_shape_reject"] += 1
                     low_speed = mid_speed
                     continue
             elif shot_profile == "drop":
                 # Keep drop returns landing in short service-line zone.
                 if tx < NET_X:
                     if land["x"] < -SHORT_SERVICE_LINE:
+                        stats["short_zone_reject"] += 1
                         high_speed = mid_speed
                         continue
                     if land["x"] >= NET_X:
+                        stats["short_zone_reject"] += 1
                         low_speed = mid_speed
                         continue
                 else:
                     if land["x"] > SHORT_SERVICE_LINE:
+                        stats["short_zone_reject"] += 1
                         high_speed = mid_speed
                         continue
                     if land["x"] <= NET_X:
+                        stats["short_zone_reject"] += 1
                         low_speed = mid_speed
                         continue
 
@@ -473,17 +505,35 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
             err_y = abs(land["y"] - ty)
             err_xy = math.sqrt(err_x * err_x + err_y * err_y)
 
-            local_best = {
+            candidate = {
                 "speed": mid_speed,
                 "yaw_deg": yaw_deg,
                 "pitch_deg": pitch_deg,
                 "sim": sim,
+                "error_x": err_x,
+                "error_y": err_y,
                 "error_xy": err_xy,
+                "within_tol": err_x <= tol_xy and err_y <= tol_xy,
                 "profile": shot_profile,
             }
-            stats["candidate_updates"] += 1
+            candidate_summary = {
+                "speed": mid_speed,
+                "pitch_deg": pitch_deg,
+                "landing": {"x": land["x"], "y": land["y"], "z": land["z"], "t": land["t"]},
+                "target": {"x": tx, "y": ty, "z": tz},
+                "error_x": err_x,
+                "error_y": err_y,
+                "error_xy": err_xy,
+                "clearance": clearance,
+                "apex_z": apex["z"] if apex else None,
+                "flight_t": land["t"],
+            }
+            if _is_better_return_candidate(candidate, local_best, preferred_speed):
+                local_best = candidate
+                stats["best_candidate"] = candidate_summary
+                stats["candidate_updates"] += 1
 
-            if err_x < tol_xy and err_y < tol_xy:
+            if err_x <= tol_xy and err_y <= tol_xy:
                 high_speed = mid_speed
             else:
                 if land["x"] < tx:
@@ -494,8 +544,21 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
         candidate = local_best
         if not candidate:
             continue
-        if best is None or candidate["error_xy"] < best["error_xy"]:
+        if _is_better_return_candidate(candidate, best, preferred_speed):
             best = candidate
+
+    if best is not None:
+        stats["best_error_x"] = best.get("error_x")
+        stats["best_error_y"] = best.get("error_y")
+        stats["best_error_xy"] = best.get("error_xy")
+        stats["tol_xy"] = tol_xy
+        if best.get("error_x", inf) > tol_xy or best.get("error_y", inf) > tol_xy:
+            stats["tolerance_reject"] = 1
+            best = None
+        else:
+            stats["tolerance_reject"] = 0
+    else:
+        stats["tolerance_reject"] = 0
 
     if isinstance(debug_stats, dict):
         debug_stats.clear()

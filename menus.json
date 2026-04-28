@@ -1,213 +1,16 @@
 {
   "menus": [
     {
-      "id": "python-test-alt-backcourt-10",
-      "call_id": "python-test-alt-backcourt-10",
-      "menuName": "Alternating Backcourt x10",
-      "description": "",
+      "id": "drill-1-drop-block",
+      "call_id": "drill-1-drop-block",
+      "menuName": "Drill 1 - Drop and Block",
+      "description": "Backline high release. Alternates left/right drop feeds returned as lifts, then stick-smash feeds returned as blocks. Pattern repeats three rounds.",
       "payload": {
         "schema_version": 1,
-        "call_id": "python-test-alt-backcourt-10",
+        "call_id": "drill-1-drop-block",
         "action": "start",
         "menu": {
-          "menuName": "Alternating Backcourt x10",
-          "drills": [
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": -7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": 7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": -7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": 7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": -7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": 7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": -7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": 7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": -7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            },
-            {
-              "parameters": {
-                "speed": 50.0,
-                "yaw": 7.0,
-                "pitch": 30.0
-              },
-              "interval": 1200
-            }
-          ]
-        }
-      },
-      "simulator": {
-        "schema_version": 1,
-        "default_return_policy": {
-          "profile": "clear",
-          "side": "center"
-        },
-        "drill_overrides": {
-          "0": {
-            "return_policy": {
-              "profile": "clear",
-              "target": {
-                "x": -2.35,
-                "y": -6.55
-              }
-            }
-          },
-          "1": {
-            "return_policy": {
-              "profile": "clear",
-              "target": {
-                "x": 2.35,
-                "y": -6.55
-              }
-            }
-          },
-          "2": {
-            "return_policy": {
-              "profile": "drive",
-              "target": {
-                "x": -2.35,
-                "y": -6.2
-              }
-            }
-          },
-          "3": {
-            "return_policy": {
-              "profile": "drive",
-              "target": {
-                "x": 2.35,
-                "y": -6.2
-              }
-            }
-          },
-          "4": {
-            "return_policy": {
-              "profile": "drop",
-              "target": {
-                "x": -2.35,
-                "y": -1.5
-              }
-            }
-          },
-          "5": {
-            "return_policy": {
-              "profile": "drop",
-              "target": {
-                "x": 2.35,
-                "y": -1.5
-              }
-            }
-          },
-          "6": {
-            "return_policy": {
-              "profile": "clear",
-              "target": {
-                "x": 2.35,
-                "y": -6.55
-              }
-            }
-          },
-          "7": {
-            "return_policy": {
-              "profile": "clear",
-              "target": {
-                "x": 2.35,
-                "y": -6.55
-              }
-            }
-          },
-          "8": {
-            "return_policy": {
-              "profile": "drop",
-              "target": {
-                "x": 2.35,
-                "y": -1.5
-              }
-            }
-          },
-          "9": {
-            "return_policy": {
-              "profile": "drop",
-              "target": {
-                "x": -2.35,
-                "y": -1.5
-              }
-            }
-          }
-        }
-      },
-      "timestamp": "2026-04-22T23:46:58.996799",
-      "source": "api"
-    },
-    {
-      "id": "python-test-drill-1-backline-frontlift-blockx3",
-      "call_id": "python-test-drill-1-backline-frontlift-blockx3",
-      "menuName": "Drill 1 - Backline Drop/StickSmash x3",
-      "description": "Serve from center backline high point. Player-side left/right mapping.",
-      "payload": {
-        "schema_version": 1,
-        "call_id": "python-test-drill-1-backline-frontlift-blockx3",
-        "action": "start",
-        "menu": {
-          "menuName": "Drill 1 - Backline Drop/StickSmash x3",
+          "menuName": "Drill 1 - Drop and Block",
           "simulator_position": {
             "x": 0.0,
             "y": -6.7,
@@ -319,7 +122,7 @@
           "profile": "clear",
           "target": {
             "x": 0.0,
-            "y": -6.35
+            "y": -6.5
           }
         },
         "drill_overrides": {
@@ -346,7 +149,7 @@
               "profile": "block",
               "target": {
                 "x": -2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           },
@@ -355,7 +158,7 @@
               "profile": "block",
               "target": {
                 "x": 2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           },
@@ -382,7 +185,7 @@
               "profile": "block",
               "target": {
                 "x": -2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           },
@@ -391,7 +194,7 @@
               "profile": "block",
               "target": {
                 "x": 2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           },
@@ -418,7 +221,7 @@
               "profile": "block",
               "target": {
                 "x": -2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           },
@@ -427,7 +230,7 @@
               "profile": "block",
               "target": {
                 "x": 2.35,
-                "y": -3.30
+                "y": -3.3
               }
             }
           }
@@ -437,16 +240,16 @@
       "source": "api"
     },
     {
-      "id": "python-test-drill-2-midcourt-drive-x4",
-      "call_id": "python-test-drill-2-midcourt-drive-x4",
-      "menuName": "Drill 2 - Midcourt Drive x4",
-      "description": "Serve from center mid court medium point. Player-side left/right mapping.",
+      "id": "drill-2-drive-defense",
+      "call_id": "drill-2-drive-defense",
+      "menuName": "Drill 2 - Drive Defense",
+      "description": "Midcourt release. Softer left/right drive feeds with higher launch and more forgiving clearance. Returns are drives to the opposite backcourt side.",
       "payload": {
         "schema_version": 1,
-        "call_id": "python-test-drill-2-midcourt-drive-x4",
+        "call_id": "drill-2-drive-defense",
         "action": "start",
         "menu": {
-          "menuName": "Drill 2 - Midcourt Drive x4",
+          "menuName": "Drill 2 - Drive Defense",
           "simulator_position": {
             "x": 0.0,
             "y": -3.2,
@@ -455,65 +258,65 @@
           "drills": [
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": -16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": 16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": -16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": 16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": -16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": 16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": -16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 28.5,
+                "speed": 23.0,
                 "yaw": 16.77,
-                "pitch": 8
+                "pitch": 14
               },
               "interval": 1100
             }
@@ -526,7 +329,7 @@
           "profile": "drive",
           "target": {
             "x": 0.0,
-            "y": -6.2
+            "y": -6.5
           }
         },
         "drill_overrides": {
@@ -535,10 +338,8 @@
               "profile": "drive",
               "target": {
                 "x": -2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "1": {
@@ -546,10 +347,8 @@
               "profile": "drive",
               "target": {
                 "x": 2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "2": {
@@ -557,10 +356,8 @@
               "profile": "drive",
               "target": {
                 "x": -2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "3": {
@@ -568,10 +365,8 @@
               "profile": "drive",
               "target": {
                 "x": 2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "4": {
@@ -579,10 +374,8 @@
               "profile": "drive",
               "target": {
                 "x": -2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "5": {
@@ -590,10 +383,8 @@
               "profile": "drive",
               "target": {
                 "x": 2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "6": {
@@ -601,10 +392,8 @@
               "profile": "drive",
               "target": {
                 "x": -2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           },
           "7": {
@@ -612,10 +401,8 @@
               "profile": "drive",
               "target": {
                 "x": 2.35,
-                "y": -5.0
-              },
-              "contact_depth_offset": 0.5,
-              "contact_lateral_offset": 0.5
+                "y": -5.8
+              }
             }
           }
         }
@@ -624,16 +411,16 @@
       "source": "api"
     },
     {
-      "id": "python-test-drill-3-frontcourt-lift-xvar-x3",
-      "call_id": "python-test-drill-3-frontcourt-lift-xvar-x3",
-      "menuName": "Drill 3 - Frontcourt Net/HighVar x3",
-      "description": "Serve from front court medium point. X cycles drop/clear/smash by round.",
+      "id": "drill-3-front-back-mix",
+      "call_id": "drill-3-front-back-mix",
+      "menuName": "Drill 3 - Front and Back Mix",
+      "description": "Frontcourt net feeds alternate with clear-like backcourt feeds. Backcourt return profile changes by round: drop, clear, then smash.",
       "payload": {
         "schema_version": 1,
-        "call_id": "python-test-drill-3-frontcourt-lift-xvar-x3",
+        "call_id": "drill-3-front-back-mix",
         "action": "start",
         "menu": {
-          "menuName": "Drill 3 - Frontcourt Net/HighVar x3",
+          "menuName": "Drill 3 - Front and Back Mix",
           "simulator_position": {
             "x": 0.0,
             "y": -1.9,
@@ -642,9 +429,9 @@
           "drills": [
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": -24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -658,9 +445,9 @@
             },
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": 24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -674,9 +461,9 @@
             },
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": -24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -690,9 +477,9 @@
             },
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": 24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -706,9 +493,9 @@
             },
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": -24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -722,9 +509,9 @@
             },
             {
               "parameters": {
-                "speed": 10.5,
+                "speed": 8.0,
                 "yaw": 24.06,
-                "pitch": 14
+                "pitch": 26
               },
               "interval": 1400
             },
@@ -745,7 +532,7 @@
           "profile": "clear",
           "target": {
             "x": 0.0,
-            "y": -6.50
+            "y": -6.35
           }
         },
         "drill_overrides": {
@@ -753,8 +540,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": -2.35,
-                "y": -1.2
+                "x": -2.2,
+                "y": -1.6
               }
             }
           },
@@ -763,7 +550,7 @@
               "profile": "drop",
               "target": {
                 "x": -2.35,
-                "y": -1.2
+                "y": -1.0
               }
             }
           },
@@ -771,8 +558,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": 2.35,
-                "y": -1.2
+                "x": 2.2,
+                "y": -1.6
               }
             }
           },
@@ -781,7 +568,7 @@
               "profile": "drop",
               "target": {
                 "x": 2.35,
-                "y": -1.2
+                "y": -1.0
               }
             }
           },
@@ -789,8 +576,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": -2.35,
-                "y": -1.2
+                "x": -2.2,
+                "y": -1.6
               }
             }
           },
@@ -799,7 +586,7 @@
               "profile": "clear",
               "target": {
                 "x": -2.35,
-                "y": -6.50
+                "y": -6.5
               }
             }
           },
@@ -807,8 +594,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": 2.35,
-                "y": -1.2
+                "x": 2.2,
+                "y": -1.6
               }
             }
           },
@@ -817,7 +604,7 @@
               "profile": "clear",
               "target": {
                 "x": 2.35,
-                "y": -6.50
+                "y": -6.5
               }
             }
           },
@@ -825,8 +612,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": -2.35,
-                "y": -1.2
+                "x": -2.2,
+                "y": -1.6
               }
             }
           },
@@ -835,7 +622,7 @@
               "profile": "smash",
               "target": {
                 "x": -2.35,
-                "y": -6.50
+                "y": -6.5
               }
             }
           },
@@ -843,8 +630,8 @@
             "return_policy": {
               "profile": "net_soft",
               "target": {
-                "x": 2.35,
-                "y": -1.2
+                "x": 2.2,
+                "y": -1.6
               }
             }
           },
@@ -853,13 +640,210 @@
               "profile": "smash",
               "target": {
                 "x": 2.35,
-                "y": -6.50
+                "y": -6.5
               }
             }
           }
         }
       },
       "timestamp": "2026-04-27T00:00:00.000000",
+      "source": "api"
+    },
+    {
+      "id": "drill-4-alternating-backcourt",
+      "call_id": "drill-4-alternating-backcourt",
+      "menuName": "Drill 4 - Alternating Backcourt",
+      "description": "Alternates left and right backcourt feeds for ten shots.",
+      "payload": {
+        "schema_version": 1,
+        "call_id": "drill-4-alternating-backcourt",
+        "action": "start",
+        "menu": {
+          "menuName": "Drill 4 - Alternating Backcourt",
+          "drills": [
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": -7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": 7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": -7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": 7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": -7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": 7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": -7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": 7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": -7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            },
+            {
+              "parameters": {
+                "speed": 50.0,
+                "yaw": 7.0,
+                "pitch": 30.0
+              },
+              "interval": 1200
+            }
+          ]
+        }
+      },
+      "simulator": {
+        "schema_version": 1,
+        "default_return_policy": {
+          "profile": "clear",
+          "side": "center"
+        },
+        "drill_overrides": {
+          "0": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": -2.35,
+                "y": -6.55
+              }
+            }
+          },
+          "1": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": 2.35,
+                "y": -6.55
+              }
+            }
+          },
+          "2": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": -2.35,
+                "y": -6.5
+              }
+            }
+          },
+          "3": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": 2.35,
+                "y": -6.5
+              }
+            }
+          },
+          "4": {
+            "return_policy": {
+              "profile": "drop",
+              "target": {
+                "x": -2.35,
+                "y": -1.0
+              }
+            }
+          },
+          "5": {
+            "return_policy": {
+              "profile": "drop",
+              "target": {
+                "x": 2.35,
+                "y": -1.0
+              }
+            }
+          },
+          "6": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": 2.35,
+                "y": -6.55
+              }
+            }
+          },
+          "7": {
+            "return_policy": {
+              "profile": "clear",
+              "target": {
+                "x": 2.35,
+                "y": -6.55
+              }
+            }
+          },
+          "8": {
+            "return_policy": {
+              "profile": "drop",
+              "target": {
+                "x": 2.35,
+                "y": -1.0
+              }
+            }
+          },
+          "9": {
+            "return_policy": {
+              "profile": "drop",
+              "target": {
+                "x": -2.35,
+                "y": -1.0
+              }
+            }
+          }
+        }
+      },
+      "timestamp": "2026-04-22T23:46:58.996799",
       "source": "api"
     }
   ],

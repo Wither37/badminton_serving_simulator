@@ -21,8 +21,13 @@ class ReturnSolver:
         self._active_return_animations = []
         self._player_returned_home_pulse = False
 
-        self.player_home = Vec3(RETURN_PLAYER_HOME_WIDTH, RETURN_PLAYER_HOME_HEIGHT, RETURN_PLAYER_HOME_DEPTH)
-        self.player_speed = 4.2
+        player_home = RETURN_PLAYER["home"]
+        player_movement = RETURN_PLAYER["movement"]
+        self.player_home = Vec3(player_home["width"], player_home["height"], player_home["depth"])
+        self.player_max_speed = float(player_movement["max_speed"])
+        self.player_accel = float(player_movement["accel"])
+        self.player_decel = float(player_movement["decel"])
+        self._player_speed_now = 0.0
         self.player_state = "idle"
         self._player_target = self.player_home
         self._active_plan = None
@@ -59,6 +64,7 @@ class ReturnSolver:
             self._handled_ball_ids.clear()
             self._player_returned_home_pulse = False
             self.return_player.position = self.player_home
+            self._player_speed_now = 0.0
 
     def consume_player_returned_home_pulse(self):
         pulse = self._player_returned_home_pulse
@@ -70,9 +76,9 @@ class ReturnSolver:
         contact_cfg = sol.get("contact_cfg")
         intercept_pos = self._intercept_position_from_contact(contact, profile=active_profile, contact_cfg=contact_cfg)
         move_dist = (intercept_pos - self.player_home).length()
-        move_lead = (move_dist / max(self.player_speed, 0.1)) + 0.05
+        move_lead = self._travel_time_with_player_profile(move_dist)
         natural_start_t = max(0.0, contact["t"] - move_lead)
-        early_react_t = max(0.0, float(RETURN_REACTION_DELAY_AFTER_SERVE))
+        early_react_t = max(0.0, float(RETURN_PLAYER["reaction_delay"]))
         return {
             "ball_id": id(ball_obj),
             "ball": ball_obj,
@@ -86,20 +92,39 @@ class ReturnSolver:
             "state": "scheduled",
         }
 
-    def _intercept_position_from_contact(self, contact, profile=None, contact_cfg=None):
-        depth_offset = (contact_cfg or {}).get("depth_offset")
-        if depth_offset is not None:
-            # Depth-locked stance: lateral-only move at home depth, keeping a fixed side offset from contact.
-            side_offset = float((contact_cfg or {}).get("lateral_offset", RETURN_BLOCK_CONTACT_SIDE_OFFSET))
-            lateral = float(contact["y"])
-            if abs(lateral) > 1e-6:
-                lateral = lateral - math.copysign(side_offset, lateral)
-            lateral = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, lateral))
-            return Vec3(lateral, self.return_player.y, self.player_home.z)
+    def _travel_time_with_player_profile(self, distance_m):
+        d = max(0.0, float(distance_m))
+        if d <= 0.03:
+            return 0.0
 
-        # Keep player slightly behind contact so the shuttle is struck in front of the body.
-        x = min(BACK_BASELINE, contact["x"] + RETURN_PLAYER_CONTACT_BACK_OFFSET)
-        return Vec3(contact["y"], self.return_player.y, x)
+        # Runtime considers the target reached once it is within this snap distance.
+        d = max(0.0, d - 0.03)
+        vmax = max(0.1, float(self.player_max_speed))
+        accel = max(0.1, float(self.player_accel))
+        decel = max(0.1, float(self.player_decel))
+
+        d_acc = (vmax * vmax) / (2.0 * accel)
+        d_dec = (vmax * vmax) / (2.0 * decel)
+        if d >= d_acc + d_dec:
+            return (vmax / accel) + ((d - d_acc - d_dec) / vmax) + (vmax / decel)
+
+        v_peak = math.sqrt(max(0.0, 2.0 * d * accel * decel / (accel + decel)))
+        return (v_peak / accel) + (v_peak / decel)
+
+    def _intercept_position_from_contact(self, contact, profile=None, contact_cfg=None):
+        offset = (contact_cfg or {}).get("contact_offset") or {}
+        lateral_offset = float(offset.get("x", 0.0))
+        depth_offset = float(offset.get("y", 0.0))
+        depth_lock_to_home = bool((contact_cfg or {}).get("depth_lock_to_home", False))
+
+        lateral = float(contact["y"])
+        if abs(lateral) > 1e-6:
+            lateral = lateral - math.copysign(lateral_offset, lateral)
+        lateral = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, lateral))
+
+        # Offset is reach geometry only. The return still launches from the actual contact point.
+        depth = float(self.player_home.z) if depth_lock_to_home else min(BACK_BASELINE, float(contact["x"]) + depth_offset)
+        return Vec3(lateral, self.return_player.y, depth)
 
     def clear_entities(self):
         self.stop_animation()
@@ -110,6 +135,7 @@ class ReturnSolver:
         self._player_returned_home_pulse = False
         self.player_state = "idle"
         self.return_player.position = self.player_home
+        self._player_speed_now = 0.0
         for anim in self._active_return_animations:
             for t in anim.get("trails", []):
                 destroy(t)
@@ -132,13 +158,11 @@ class ReturnSolver:
 
         if in_x > NET_X + 4.0:
             profile = "clear"
-            tx = RETURN_TARGET_X_CLEAR
         elif in_x > NET_X + 2.1:
             profile = "drive"
-            tx = RETURN_TARGET_X_DRIVE
         else:
             profile = "lift"
-            tx = RETURN_TARGET_X_LIFT
+        target = dict(RETURN_DEFAULT_TARGETS[profile])
 
         # Mirror lateral side for "opposite side" behavior.
         if abs(in_y) < 0.35:
@@ -147,7 +171,8 @@ class ReturnSolver:
             ty = -in_y
             ty = max(min(ty, SINGLES_HALF_W - 0.35), -(SINGLES_HALF_W - 0.35))
 
-        return profile, {"x": tx, "y": ty, "z": 0.0}
+        target["y"] = ty
+        return profile, target
 
     def _resolve_profile_target_and_contact(self, landing, policy):
         profile, auto_target = self._choose_target_point(landing)
@@ -193,56 +218,33 @@ class ReturnSolver:
         return profile, target, self._resolve_contact_cfg(profile, policy)
 
     def _resolve_contact_cfg(self, profile, policy):
-        # Hardcoded constraints per profile.
-        defaults = {
-            "lift": {"height_min": 0.10, "height_max": 0.30, "depth_offset": None, "lateral_offset": 0.0},
-            "net_soft": {"height_min": 1.10, "height_max": 1.35, "depth_offset": None, "lateral_offset": 0.0},
-            "drive": {
-                "height_min": float(RETURN_DRIVE_CONTACT_HEIGHT_MIN),
-                "height_max": float(RETURN_DRIVE_CONTACT_HEIGHT_MAX),
-                "depth_offset": float(RETURN_DRIVE_CONTACT_BACK_OFFSET),
-                "lateral_offset": float(RETURN_DRIVE_CONTACT_SIDE_OFFSET),
-            },
-            "block": {
-                "height_min": 0.10,
-                "height_max": 2.60,
-                "depth_offset": 0.0,
-                "lateral_offset": float(RETURN_BLOCK_CONTACT_SIDE_OFFSET),
-            },
-            "drop": {"height_min": 2.50, "height_max": 2.80, "depth_offset": None, "lateral_offset": 0.0},
-            "clear": {"height_min": 2.50, "height_max": 2.80, "depth_offset": None, "lateral_offset": 0.0},
-            "smash": {"height_min": 3.00, "height_max": 3.20, "depth_offset": None, "lateral_offset": 0.0},
+        defaults = RETURN_PROFILES
+        default_profile = defaults.get(profile) or defaults.get("clear") or {}
+        range_vals = default_profile.get("height_range_m") or [0.65, 2.50]
+        offset_vals = default_profile.get("contact_offset_m")
+        if not isinstance(offset_vals, dict) or "x" not in offset_vals or "y" not in offset_vals:
+            raise ValueError(f"RETURN_PROFILES['{profile}'] must define contact_offset_m.x and contact_offset_m.y")
+        cfg = {
+            "height_min": float(range_vals[0]),
+            "height_max": float(range_vals[1]),
+            "contact_offset": {"x": float(offset_vals.get("x", 0.0)), "y": float(offset_vals.get("y", 0.0))},
+            "depth_lock_to_home": bool(default_profile.get("depth_lock_to_home", False)),
         }
-        cfg = pycopy.deepcopy(defaults.get(profile, {"height_min": 0.65, "height_max": 2.50, "depth_offset": None, "lateral_offset": 0.0}))
-
-        if not isinstance(policy, dict):
-            return cfg
-
-        # Numeric policy knobs (replace custom mode-style configuration):
-        # - contact_depth_offset: depth-lock plane offset from player home depth.
-        #   target_depth = player_home.z - contact_depth_offset
-        # - contact_lateral_offset: lateral inside offset when depth-lock is active.
-        depth_offset = policy.get("contact_depth_offset")
-        if depth_offset is not None:
-            try:
-                cfg["depth_offset"] = float(depth_offset)
-            except Exception:
-                pass
-
-        lateral_offset = policy.get("contact_lateral_offset")
-        if lateral_offset is not None:
-            try:
-                cfg["lateral_offset"] = float(lateral_offset)
-            except Exception:
-                pass
 
         # Deprecated policy fields (ignored for deterministic profile behavior).
-        if policy.get("contact_mode") is not None:
-            self._debug("contact_mode is ignored; use numeric contact_depth_offset/contact_lateral_offset")
-        if policy.get("contact_height_min") is not None or policy.get("contact_height_max") is not None:
-            self._debug("contact_height_min/max are ignored; constraints are hardcoded per profile")
-        if policy.get("contact_side_offset") is not None or policy.get("contact_back_offset") is not None:
-            self._debug("contact_side_offset/contact_back_offset are ignored; use contact_lateral_offset/contact_depth_offset")
+        if isinstance(policy, dict):
+            if policy.get("contact_mode") is not None:
+                self._debug("contact_mode is ignored; contact behavior is profile-defined")
+            if policy.get("contact_height_min") is not None or policy.get("contact_height_max") is not None:
+                self._debug("contact_height_min/max are ignored; constraints are profile-defined")
+            if (
+                policy.get("contact_offset") is not None
+                or policy.get("contact_side_offset") is not None
+                or policy.get("contact_back_offset") is not None
+                or policy.get("contact_depth_offset") is not None
+                or policy.get("contact_lateral_offset") is not None
+            ):
+                self._debug("contact offset fields are ignored; define a separate profile instead")
 
         cfg["height_min"] = max(0.05, float(cfg["height_min"]))
         cfg["height_max"] = min(4.0, float(cfg["height_max"]))
@@ -256,11 +258,11 @@ class ReturnSolver:
 
         min_h = float((contact_cfg or {}).get("height_min", 0.65))
         max_h = float((contact_cfg or {}).get("height_max", 2.50))
-        depth_offset = (contact_cfg or {}).get("depth_offset")
+        offset = (contact_cfg or {}).get("contact_offset") or {}
+        depth_lock_to_home = bool((contact_cfg or {}).get("depth_lock_to_home", False))
 
-        # Depth-locked selection (numeric plane): target_depth = player_home.z - contact_depth_offset
-        if depth_offset is not None:
-            target_depth = float(self.player_home.z) - float(depth_offset)
+        if depth_lock_to_home:
+            target_depth = float(self.player_home.z) - float(offset.get("y", 0.0))
             for i in range(len(points) - 1):
                 p0 = points[i]
                 p1 = points[i + 1]
@@ -280,22 +282,9 @@ class ReturnSolver:
                     y = y0 + (y1 - y0) * w
                     t = t0 + (t1 - t0) * w
                     return {"x": target_depth, "y": y, "z": z, "t": t}
+            return None
 
-            best = None
-            for p in points:
-                x, y, z, vx, vy, vz, _t = p
-                if x <= NET_X + 0.55:
-                    continue
-                if vz >= 0:
-                    continue
-                if min_h <= z <= max_h:
-                    d = abs(x - target_depth)
-                    if best is None or d < best[0]:
-                        best = (d, y, z, _t)
-            if best is not None:
-                return {"x": target_depth, "y": best[1], "z": best[2], "t": best[3]}
-
-        # Natural selection within hardcoded profile band.
+        # Contact must be a point from the serve trajectory. Offset only affects player reach.
         for p in points:
             x, y, z, vx, vy, vz, _t = p
             if x <= NET_X + 0.7:
@@ -305,13 +294,6 @@ class ReturnSolver:
             if min_h <= z <= max_h:
                 return {"x": x, "y": y, "z": z, "t": _t}
 
-        # Fallback: a safe contact near landing but above ground.
-        if len(points) >= 6:
-            p = points[-6]
-            x = float(p[0])
-            if depth_offset is not None:
-                x = float(self.player_home.z) - float(depth_offset)
-            return {"x": x, "y": p[1], "z": max(min_h, min(max_h, p[2])), "t": p[6]}
         return None
 
     def _classify_serve_type(self, landing):
@@ -468,7 +450,7 @@ class ReturnSolver:
             return None
 
         sim_points = sol["sim"].get("points", [])
-        sol["sim"]["points"] = self._downsample_points(sim_points, serve_dt * RETURN_POINT_STEP_MULT)
+        sol["sim"]["points"] = self._downsample_points(sim_points, serve_dt * RETURN_ANIMATION["point_step_mult"])
         sol["contact_cfg"] = pycopy.deepcopy(contact_cfg)
 
         result = {
@@ -480,7 +462,7 @@ class ReturnSolver:
         }
 
         self._precompute_cache[cache_key] = pycopy.deepcopy(result)
-        if len(self._precompute_cache) > RETURN_PRECOMPUTE_CACHE_MAX:
+        if len(self._precompute_cache) > RETURN_RUNTIME["precompute_cache_max"]:
             oldest_key = next(iter(self._precompute_cache))
             del self._precompute_cache[oldest_key]
 
@@ -511,7 +493,9 @@ class ReturnSolver:
     def _solver_params_for_profile(self, profile):
         # Net shots need tighter landing tolerance to avoid spilling outside singles width.
         if profile == "net_soft":
-            return 0.08, 20, 16
+            return 0.16, 20, 16
+        if profile == "lift":
+            return 0.32, 16, 12
         return 0.32, 8, 6
 
     def _solve_one_pending_request(self):
@@ -551,7 +535,7 @@ class ReturnSolver:
             return False
 
         sim_points = sol["sim"].get("points", [])
-        sol["sim"]["points"] = self._downsample_points(sim_points, req["serve_dt"] * RETURN_POINT_STEP_MULT)
+        sol["sim"]["points"] = self._downsample_points(sim_points, req["serve_dt"] * RETURN_ANIMATION["point_step_mult"])
         sol["contact_cfg"] = pycopy.deepcopy(req.get("contact_cfg") or {})
 
         contact = req["contact"]
@@ -595,7 +579,7 @@ class ReturnSolver:
             return
 
     def _try_launch_active_plan(self):
-        if self._active_plan is None or self.player_state != "wait_contact":
+        if self._active_plan is None or self.player_state not in ("move_to_intercept", "wait_contact"):
             return
 
         ball = self._active_plan["ball"]
@@ -632,6 +616,7 @@ class ReturnSolver:
         dist = delta.length()
         if dist < 0.03:
             self.return_player.position = target
+            self._player_speed_now = 0.0
             if self.player_state == "move_to_intercept":
                 self.player_state = "wait_contact"
             else:
@@ -639,7 +624,25 @@ class ReturnSolver:
                 self._player_returned_home_pulse = True
             return
 
-        step = self.player_speed * time.dt
+        dt = max(1e-6, float(time.dt))
+        accel = max(0.1, float(self.player_accel))
+        decel = max(0.1, float(self.player_decel))
+        vmax = max(0.1, float(self.player_max_speed))
+
+        # Braking-speed envelope:
+        # stop_speed = sqrt(2 * decel * remaining_distance)
+        # target speed is min(vmax, stop_speed), giving:
+        # long distance: accel -> cruise -> decel
+        # short distance: accel -> decel
+        stop_speed = math.sqrt(max(0.0, 2.0 * decel * dist))
+        target_speed = min(vmax, stop_speed)
+
+        if self._player_speed_now < target_speed:
+            self._player_speed_now = min(target_speed, self._player_speed_now + accel * dt)
+        else:
+            self._player_speed_now = max(target_speed, self._player_speed_now - decel * dt)
+
+        step = self._player_speed_now * dt
         move = delta.normalized() * min(step, dist)
         self.return_player.position = current + move
 
@@ -653,6 +656,10 @@ class ReturnSolver:
         sol = plan["solution"]
         contact = plan["contact"]
         points = sol["sim"]["points"]
+        ball = plan.get("ball")
+
+        if SERVE_VISUAL["hide_after_return_contact"] and ball is not None and hasattr(ball, "hide_remaining_after_return_contact"):
+            ball.hide_remaining_after_return_contact()
 
         return_entity = Entity(
             model="sphere",
@@ -732,11 +739,11 @@ class ReturnSolver:
                         entity.position = (y, z, x)
 
                         anim["trail_timer"] += time.dt
-                        if anim["trail_timer"] >= RETURN_TRAIL_INTERVAL:
+                        if anim["trail_timer"] >= RETURN_ANIMATION["trail_interval"]:
                             trail = Entity(model="sphere", scale=0.03, color=color.orange, position=entity.position)
                             anim["trails"].append(trail)
                             self.game_state.return_trails.append(trail)
-                            anim["trail_timer"] -= RETURN_TRAIL_INTERVAL
+                            anim["trail_timer"] -= RETURN_ANIMATION["trail_interval"]
                         advanced = True
                         break
 
@@ -744,7 +751,7 @@ class ReturnSolver:
                     final_pos = points[-1]
                     entity.position = (final_pos[1], final_pos[2], final_pos[0])
                     anim["landed"] = True
-                    anim["clear_timer"] = RETURN_TRAIL_CLEAR_DELAY
+                    anim["clear_timer"] = RETURN_ANIMATION["trail_clear_delay"]
             else:
                 anim["clear_timer"] = max(0.0, (anim.get("clear_timer") or 0.0) - time.dt)
                 if anim["clear_timer"] <= 0.0:

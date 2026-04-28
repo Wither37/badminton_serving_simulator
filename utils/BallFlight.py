@@ -25,6 +25,7 @@ class BallFlight:
         self.trail_timer = 0.0
         self.finished = False
         self.trail_clear_timer = None
+        self.hide_after_return_contact = False
 
         self.entity = Entity(
             model='sphere',
@@ -73,6 +74,8 @@ class BallFlight:
         self.land()
 
     def _update_trail(self):
+        if self.hide_after_return_contact:
+            return
         if not self.state.show_trajectory:
             return
 
@@ -87,6 +90,10 @@ class BallFlight:
             self.trail_entities.append(trail)
             self.trail_timer -= TRAIL_INTERVAL
 
+    def hide_remaining_after_return_contact(self):
+        self.hide_after_return_contact = True
+        self.entity.visible = False
+
     def land(self):
         self.entity.color = color.red
         print(f"Landed at (x={self.entity.z:.2f}, y={self.entity.x:.2f})")
@@ -94,13 +101,14 @@ class BallFlight:
         self.landing = {'x': self.entity.z, 'y': self.entity.x}
         self.state.latest_landed_ball = self
 
-        marker = Entity(
-            model='sphere',
-            scale=0.1,
-            color=color.blue,
-            position=(self.entity.x, 0.05, self.entity.z)
-        )
-        self.state.landing_markers.append(marker)
+        if not (SERVE_VISUAL["hide_after_return_contact"] and self.hide_after_return_contact):
+            marker = Entity(
+                model='sphere',
+                scale=0.1,
+                color=color.blue,
+                position=(self.entity.x, 0.05, self.entity.z)
+            )
+            self.state.landing_markers.append(marker)
 
         self.ui.landings.append({
             'pos': (self.entity.z, self.entity.x),
@@ -111,7 +119,7 @@ class BallFlight:
         self.simulator.client.publish(self.simulator.status_topic, "serve=done")
 
         self.finished = True
-        self.trail_clear_timer = SERVE_TRAIL_CLEAR_DELAY
+        self.trail_clear_timer = SERVE_VISUAL["trail_clear_delay"]
 
     def destroy(self):
         for e in self.trail_entities:
