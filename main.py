@@ -1,7 +1,7 @@
 """主程式入口"""
 from ursina import *
 from ursina.prefabs.first_person_controller import FirstPersonController
-from ursina.shaders import lit_with_shadows_shader
+from ursina.shaders import lit_with_shadows_shader, unlit_shader
 import threading
 import queue
 
@@ -104,7 +104,14 @@ def _simulator_global_to_physics_start(simulator_position=None):
     return pos['y'], pos['x'], pos['z']
 
 
+def _set_serve_machine_marker_from_physics_start(start_x, start_y, start_z):
+    # Ursina mapping: (world_x, world_y, world_z) = (physics_y, physics_z, physics_x)
+    if 'serve_machine_marker' in globals() and serve_machine_marker is not None:
+        serve_machine_marker.position = (start_y, start_z, start_x)
+
+
 def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True, return_policy=None):
+    _set_serve_machine_marker_from_physics_start(start_x, start_y, start_z)
     ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
     state.active_balls.append(ball)
     solver.register_ball(
@@ -559,8 +566,16 @@ if __name__ == '__main__':
     # Create scene
     ui = UIManager()
     court = Court()
-    ball = Entity(model='sphere', position=(SIMULATOR_DEFAULT_X, SIMULATOR_DEFAULT_Z, SIMULATOR_DEFAULT_Y), color=color.yellow, scale=0.15)
-    solver = ReturnSolver(ball, ui, state)
+    serve_machine_marker = Entity(
+        model='cube',
+        position=(SIMULATOR_DEFAULT_X, SIMULATOR_DEFAULT_Z, SIMULATOR_DEFAULT_Y),
+        color=color.black,
+        # Manual tune point for marker size:
+        # change this scale tuple directly to resize the box.
+        scale=(0.28, 0.20, 0.28),
+        shader=unlit_shader,
+    )
+    solver = ReturnSolver(serve_machine_marker, ui, state)
 
     ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                           state.menu_delete_mode, state.show_returns)

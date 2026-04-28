@@ -63,7 +63,17 @@ RETURN_TRAIL_CLEAR_DELAY = 0.20   # seconds after return landing before clearing
 RETURN_TARGET_X_CLEAR = -6.55
 RETURN_TARGET_X_DRIVE = -6.20
 RETURN_TARGET_X_LIFT = -1.50
+RETURN_TARGET_X_BLOCK = -2.15
 RETURN_PLAYER_CONTACT_BACK_OFFSET = 0.50  # meters; player stands behind contact point
+RETURN_BLOCK_CONTACT_SIDE_OFFSET = 0.50   # player stays this much inside contact laterally for block
+RETURN_DRIVE_CONTACT_BACK_OFFSET = 0.50   # contact depth is this much in front of player home depth
+RETURN_DRIVE_CONTACT_SIDE_OFFSET = 0.50   # player stays this much inside contact laterally for drive drill mode
+RETURN_DRIVE_CONTACT_HEIGHT_MIN = 1.35    # head-height band (with margin)
+RETURN_DRIVE_CONTACT_HEIGHT_MAX = 2.25
+RETURN_PLAYER_HOME_WIDTH = 0.0            # global width axis (left/right)
+RETURN_PLAYER_HOME_HEIGHT = 0.9           # player marker center height
+RETURN_PLAYER_HOME_DEPTH = NET_X + 3.5    # physics depth axis (from net toward player side)
+RETURN_REACTION_DELAY_AFTER_SERVE = 0.3  # seconds; start moving shortly after serve
 PRECOMPUTE_SERVE_WARMUP = 0.50    # seconds to wait after precompute before first serve
 RETURN_BLOCK_ON_PLAYER_RECOVER = True  # if True, next serve waits until player fully returns home
 

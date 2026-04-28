@@ -332,14 +332,34 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
         flight_t_min, flight_t_max = 0.20, 1.40
     elif shot_profile == "drop":
         pitch_candidates = [12, 16, 20, 24, 28]
-        clearance_min = 0.06
+        clearance_min = 0.04
         apex_rise_min, apex_rise_max = -0.1, 2.0
         flight_t_min, flight_t_max = 0.30, 1.80
+    elif shot_profile == "smash":
+        # Smash return: fast, flatter trajectory, low net margin.
+        pitch_candidates = [-18, -14, -10, -6, -2]
+        clearance_min = 0.015
+        apex_rise_min, apex_rise_max = -1.0, 1.0
+        flight_t_min, flight_t_max = 0.12, 0.85
+    elif shot_profile == "net_soft":
+        # Soft net return: medium contact height, gentle trajectory, low pace,
+        # just enough clearance to cross and tumble into the front court.
+        pitch_candidates = [16, 20, 24, 28, 32, 36, 40, 44]
+        clearance_min = 0.01
+        apex_rise_min, apex_rise_max = -0.05, 3.2
+        flight_t_min, flight_t_max = 0.35, 2.20
+    elif shot_profile == "block":
+        # Sideways-only block contacts can be relatively low; allow a wider arc search
+        # so the solver can still find legal net-clearing trajectories.
+        pitch_candidates = [8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48]
+        clearance_min = 0.005
+        apex_rise_min, apex_rise_max = -0.3, 3.5
+        flight_t_min, flight_t_max = 0.18, 1.60
     else:  # lift and fallback
-        pitch_candidates = [24, 30, 36, 42]
-        clearance_min = 0.10
-        apex_rise_min, apex_rise_max = 0.8, 4.5
-        flight_t_min, flight_t_max = 0.45, 1.80
+        pitch_candidates = [34, 40, 46, 52, 58, 64, 70]
+        clearance_min = 0.08
+        apex_rise_min, apex_rise_max = 0.5, 10.0
+        flight_t_min, flight_t_max = 0.55, 3.20
 
     yaw_deg = base_yaw
 
@@ -405,6 +425,49 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
                 stats["clearance_reject"] += 1
                 low_speed = mid_speed
                 continue
+
+            if shot_profile == "net_soft":
+                # Keep landing within the short service-line zone on the receiver side.
+                if tx < NET_X:
+                    if land["x"] < -SHORT_SERVICE_LINE:
+                        high_speed = mid_speed
+                        continue
+                    if land["x"] >= NET_X:
+                        low_speed = mid_speed
+                        continue
+                else:
+                    if land["x"] > SHORT_SERVICE_LINE:
+                        high_speed = mid_speed
+                        continue
+                    if land["x"] <= NET_X:
+                        low_speed = mid_speed
+                        continue
+
+                # Prefer trajectory apex on the hitter side and before net crossing,
+                # so shuttle is already descending when it passes the net.
+                apex_x = apex["x"] if apex else sx
+                apex_t = apex["t"] if apex else 0.0
+                cross_t = cross["t"] if cross else 0.0
+                same_side_as_hitter = (apex_x - NET_X) * (sx - NET_X) > 0.0
+                if not same_side_as_hitter or apex_t >= cross_t:
+                    low_speed = mid_speed
+                    continue
+            elif shot_profile == "drop":
+                # Keep drop returns landing in short service-line zone.
+                if tx < NET_X:
+                    if land["x"] < -SHORT_SERVICE_LINE:
+                        high_speed = mid_speed
+                        continue
+                    if land["x"] >= NET_X:
+                        low_speed = mid_speed
+                        continue
+                else:
+                    if land["x"] > SHORT_SERVICE_LINE:
+                        high_speed = mid_speed
+                        continue
+                    if land["x"] <= NET_X:
+                        low_speed = mid_speed
+                        continue
 
             err_x = abs(land["x"] - tx)
             err_y = abs(land["y"] - ty)

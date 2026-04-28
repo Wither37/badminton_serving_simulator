@@ -21,21 +21,21 @@ class UIManager:
             color=color.white,
             visible=False
         )
-        
+
         self.menu_list_text = Text(
-            position=window.top_right + Vec2(-0.05, -0.03),
+            position=window.top_right + Vec2(-0.04, -0.10),
             origin=(1, 0),
             text='',
-            scale=0.8,
-            visible=False
+            scale=0.82,
+            visible=False,
         )
-        
+
         self.queue_list_text = Text(
-            position=window.bottom_left + Vec2(0.15, 0.10),
-            origin=(0, 0),
+            position=window.top_right + Vec2(-0.04, -0.28),
+            origin=(1, 0),
             text='',
-            scale=0.8,
-            visible=False
+            scale=0.82,
+            visible=False,
         )
         
         self.landings = []
@@ -104,8 +104,9 @@ X: Toggle Delete Menu Mode"""
         self.return_info_text.visible = False
     
     def show_menu_list(self, menus):
-        """Display list of available menus (top right)."""
-        txt = "STORED MENUS:\n"
+        """Display list of available menus (right panel)."""
+        txt = "AVAILABLE MENUS\n"
+        txt += "----------------\n"
         if not menus:
             txt += "(none)"
         else:
@@ -121,15 +122,19 @@ X: Toggle Delete Menu Mode"""
         self.menu_list_text.visible = True
     
     def update_queue_list(self, queued_menu_ids):
-        """Display queued menu IDs (bottom left) - show only first 3."""
-        txt = "QUEUE:\n"
+        """Display queued menu IDs in right panel (under available menu list)."""
+        txt = "EXECUTION QUEUE\n"
+        txt += "---------------\n"
         if not queued_menu_ids:
             txt += "(empty)"
         else:
-            for i, menu_id in enumerate(queued_menu_ids[:3]):
-                txt += f"{i+1}. {menu_id}\n"
-            if len(queued_menu_ids) > 3:
-                txt += f"... +{len(queued_menu_ids)-3} more"
+            for i, menu_id in enumerate(queued_menu_ids[:5]):
+                label = str(menu_id)
+                if len(label) > 26:
+                    label = f"{label[:23]}..."
+                txt += f"{i+1}. {label}\n"
+            if len(queued_menu_ids) > 5:
+                txt += f"... +{len(queued_menu_ids)-5} more"
         
         self.queue_list_text.text = txt
         self.queue_list_text.visible = True

@@ -1,5 +1,6 @@
 """Dynamic return engine: player movement + context-aware return generation."""
 import copy as pycopy
+import math
 import time
 
 from ursina import *
@@ -20,8 +21,8 @@ class ReturnSolver:
         self._active_return_animations = []
         self._player_returned_home_pulse = False
 
-        self.player_home = Vec3(0.0, 0.9, NET_X + 2.6)
-        self.player_speed = 5.8
+        self.player_home = Vec3(RETURN_PLAYER_HOME_WIDTH, RETURN_PLAYER_HOME_HEIGHT, RETURN_PLAYER_HOME_DEPTH)
+        self.player_speed = 4.2
         self.player_state = "idle"
         self._player_target = self.player_home
         self._active_plan = None
@@ -64,22 +65,38 @@ class ReturnSolver:
         self._player_returned_home_pulse = False
         return pulse
 
-    def _build_plan_from_solution(self, ball_obj, contact, target, sol):
-        intercept_pos = self._intercept_position_from_contact(contact)
+    def _build_plan_from_solution(self, ball_obj, contact, target, sol, profile=None):
+        active_profile = profile or sol.get("profile")
+        contact_cfg = sol.get("contact_cfg")
+        intercept_pos = self._intercept_position_from_contact(contact, profile=active_profile, contact_cfg=contact_cfg)
         move_dist = (intercept_pos - self.player_home).length()
         move_lead = (move_dist / max(self.player_speed, 0.1)) + 0.05
+        natural_start_t = max(0.0, contact["t"] - move_lead)
+        early_react_t = max(0.0, float(RETURN_REACTION_DELAY_AFTER_SERVE))
         return {
             "ball_id": id(ball_obj),
             "ball": ball_obj,
             "contact": contact,
             "target": target,
             "solution": sol,
+            "profile": active_profile,
+            "contact_cfg": contact_cfg,
             "contact_t": contact["t"],
-            "move_start_t": max(0.0, contact["t"] - move_lead),
+            "move_start_t": min(natural_start_t, early_react_t),
             "state": "scheduled",
         }
 
-    def _intercept_position_from_contact(self, contact):
+    def _intercept_position_from_contact(self, contact, profile=None, contact_cfg=None):
+        depth_offset = (contact_cfg or {}).get("depth_offset")
+        if depth_offset is not None:
+            # Depth-locked stance: lateral-only move at home depth, keeping a fixed side offset from contact.
+            side_offset = float((contact_cfg or {}).get("lateral_offset", RETURN_BLOCK_CONTACT_SIDE_OFFSET))
+            lateral = float(contact["y"])
+            if abs(lateral) > 1e-6:
+                lateral = lateral - math.copysign(side_offset, lateral)
+            lateral = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, lateral))
+            return Vec3(lateral, self.return_player.y, self.player_home.z)
+
         # Keep player slightly behind contact so the shuttle is struck in front of the body.
         x = min(BACK_BASELINE, contact["x"] + RETURN_PLAYER_CONTACT_BACK_OFFSET)
         return Vec3(contact["y"], self.return_player.y, x)
@@ -132,66 +149,169 @@ class ReturnSolver:
 
         return profile, {"x": tx, "y": ty, "z": 0.0}
 
-    def _apply_return_policy(self, profile, target, policy):
-        if not isinstance(policy, dict):
-            return profile, target
+    def _resolve_profile_target_and_contact(self, landing, policy):
+        profile, auto_target = self._choose_target_point(landing)
+        target = dict(auto_target)
 
-        def depth_x_for_profile(pf):
-            if pf == "drive":
-                return RETURN_TARGET_X_DRIVE
-            if pf == "drop":
-                return RETURN_TARGET_X_LIFT
-            return RETURN_TARGET_X_CLEAR
+        if not isinstance(policy, dict):
+            return profile, target, self._resolve_contact_cfg(profile, None)
 
         p = policy.get("profile")
-        if p in ("clear", "drive", "lift", "drop"):
+        if isinstance(p, str):
+            p = p.strip().lower()
+        if p in ("clear", "drive", "lift", "drop", "block", "net_soft", "smash"):
             profile = p
+        elif p is not None:
+            self._debug(f"unknown return profile '{p}', fallback to auto profile '{profile}'")
 
-        # Optional lateral intent independent from depth/profile.
-        side = policy.get("side")
-        if side == "left":
-            target = {"x": depth_x_for_profile(profile), "y": -(SINGLES_HALF_W - 0.35), "z": 0.0}
-        elif side == "right":
-            target = {"x": depth_x_for_profile(profile), "y": (SINGLES_HALF_W - 0.35), "z": 0.0}
-        elif side in ("mid", "center"):
-            target = {"x": depth_x_for_profile(profile), "y": 0.0, "z": 0.0}
-
-        # Optional absolute target override. When present, ignore default_x/side intent.
-        # Input target follows global coordinates: x=width, y=depth.
+        # Strict policy contract:
+        # when a policy exists, target must be explicitly provided in global coordinates
+        # (x=width, y=depth), then converted into physics coordinates.
         custom_target = policy.get("target")
-        if isinstance(custom_target, dict):
-            gx = custom_target.get("x")
-            gy = custom_target.get("y")
-            try:
-                if gy is not None:
-                    target["x"] = float(gy)
-                if gx is not None:
-                    target["y"] = float(gx)
-            except Exception:
-                pass
+        if not isinstance(custom_target, dict):
+            return None, None, None
+
+        gx = custom_target.get("x")
+        gy = custom_target.get("y")
+        if gx is None or gy is None:
+            return None, None, None
+
+        try:
+            target["x"] = float(gy)  # physics depth
+            target["y"] = float(gx)  # physics width
+        except Exception:
+            return None, None, None
 
         target["x"] = max(-BACK_BASELINE, min(BACK_BASELINE, target["x"]))
         target["y"] = max(-SINGLES_HALF_W, min(SINGLES_HALF_W, target["y"]))
-        return profile, target
 
-    def _pick_contact_point(self, points):
+        if policy.get("lateral_mode") is not None:
+            self._debug("lateral_mode is ignored; using explicit target only")
+        if policy.get("side") is not None:
+            self._debug("side is ignored; using explicit target only")
+
+        return profile, target, self._resolve_contact_cfg(profile, policy)
+
+    def _resolve_contact_cfg(self, profile, policy):
+        # Hardcoded constraints per profile.
+        defaults = {
+            "lift": {"height_min": 0.10, "height_max": 0.30, "depth_offset": None, "lateral_offset": 0.0},
+            "net_soft": {"height_min": 1.10, "height_max": 1.35, "depth_offset": None, "lateral_offset": 0.0},
+            "drive": {
+                "height_min": float(RETURN_DRIVE_CONTACT_HEIGHT_MIN),
+                "height_max": float(RETURN_DRIVE_CONTACT_HEIGHT_MAX),
+                "depth_offset": float(RETURN_DRIVE_CONTACT_BACK_OFFSET),
+                "lateral_offset": float(RETURN_DRIVE_CONTACT_SIDE_OFFSET),
+            },
+            "block": {
+                "height_min": 0.10,
+                "height_max": 2.60,
+                "depth_offset": 0.0,
+                "lateral_offset": float(RETURN_BLOCK_CONTACT_SIDE_OFFSET),
+            },
+            "drop": {"height_min": 2.50, "height_max": 2.80, "depth_offset": None, "lateral_offset": 0.0},
+            "clear": {"height_min": 2.50, "height_max": 2.80, "depth_offset": None, "lateral_offset": 0.0},
+            "smash": {"height_min": 3.00, "height_max": 3.20, "depth_offset": None, "lateral_offset": 0.0},
+        }
+        cfg = pycopy.deepcopy(defaults.get(profile, {"height_min": 0.65, "height_max": 2.50, "depth_offset": None, "lateral_offset": 0.0}))
+
+        if not isinstance(policy, dict):
+            return cfg
+
+        # Numeric policy knobs (replace custom mode-style configuration):
+        # - contact_depth_offset: depth-lock plane offset from player home depth.
+        #   target_depth = player_home.z - contact_depth_offset
+        # - contact_lateral_offset: lateral inside offset when depth-lock is active.
+        depth_offset = policy.get("contact_depth_offset")
+        if depth_offset is not None:
+            try:
+                cfg["depth_offset"] = float(depth_offset)
+            except Exception:
+                pass
+
+        lateral_offset = policy.get("contact_lateral_offset")
+        if lateral_offset is not None:
+            try:
+                cfg["lateral_offset"] = float(lateral_offset)
+            except Exception:
+                pass
+
+        # Deprecated policy fields (ignored for deterministic profile behavior).
+        if policy.get("contact_mode") is not None:
+            self._debug("contact_mode is ignored; use numeric contact_depth_offset/contact_lateral_offset")
+        if policy.get("contact_height_min") is not None or policy.get("contact_height_max") is not None:
+            self._debug("contact_height_min/max are ignored; constraints are hardcoded per profile")
+        if policy.get("contact_side_offset") is not None or policy.get("contact_back_offset") is not None:
+            self._debug("contact_side_offset/contact_back_offset are ignored; use contact_lateral_offset/contact_depth_offset")
+
+        cfg["height_min"] = max(0.05, float(cfg["height_min"]))
+        cfg["height_max"] = min(4.0, float(cfg["height_max"]))
+        if cfg["height_min"] > cfg["height_max"]:
+            cfg["height_min"], cfg["height_max"] = cfg["height_max"], cfg["height_min"]
+        return cfg
+
+    def _pick_contact_point(self, points, preferred_profile=None, contact_cfg=None):
         if not points:
             return None
 
-        # Use first descending point in opponent half at playable height.
+        min_h = float((contact_cfg or {}).get("height_min", 0.65))
+        max_h = float((contact_cfg or {}).get("height_max", 2.50))
+        depth_offset = (contact_cfg or {}).get("depth_offset")
+
+        # Depth-locked selection (numeric plane): target_depth = player_home.z - contact_depth_offset
+        if depth_offset is not None:
+            target_depth = float(self.player_home.z) - float(depth_offset)
+            for i in range(len(points) - 1):
+                p0 = points[i]
+                p1 = points[i + 1]
+                x0, y0, z0, vx0, vy0, vz0, t0 = p0
+                x1, y1, z1, vx1, vy1, vz1, t1 = p1
+                if vz0 >= 0 and vz1 >= 0:
+                    continue
+                if (x0 - target_depth) * (x1 - target_depth) > 0:
+                    continue
+                if x1 == x0:
+                    continue
+                w = (target_depth - x0) / (x1 - x0)
+                if w < 0.0 or w > 1.0:
+                    continue
+                z = z0 + (z1 - z0) * w
+                if min_h <= z <= max_h:
+                    y = y0 + (y1 - y0) * w
+                    t = t0 + (t1 - t0) * w
+                    return {"x": target_depth, "y": y, "z": z, "t": t}
+
+            best = None
+            for p in points:
+                x, y, z, vx, vy, vz, _t = p
+                if x <= NET_X + 0.55:
+                    continue
+                if vz >= 0:
+                    continue
+                if min_h <= z <= max_h:
+                    d = abs(x - target_depth)
+                    if best is None or d < best[0]:
+                        best = (d, y, z, _t)
+            if best is not None:
+                return {"x": target_depth, "y": best[1], "z": best[2], "t": best[3]}
+
+        # Natural selection within hardcoded profile band.
         for p in points:
             x, y, z, vx, vy, vz, _t = p
             if x <= NET_X + 0.7:
                 continue
             if vz >= 0:
                 continue
-            if 0.75 <= z <= 2.5:
+            if min_h <= z <= max_h:
                 return {"x": x, "y": y, "z": z, "t": _t}
 
         # Fallback: a safe contact near landing but above ground.
         if len(points) >= 6:
             p = points[-6]
-            return {"x": p[0], "y": p[1], "z": max(0.9, min(2.2, p[2])), "t": p[6]}
+            x = float(p[0])
+            if depth_offset is not None:
+                x = float(self.player_home.z) - float(depth_offset)
+            return {"x": x, "y": p[1], "z": max(min_h, min(max_h, p[2])), "t": p[6]}
         return None
 
     def _classify_serve_type(self, landing):
@@ -230,6 +350,7 @@ class ReturnSolver:
                 contact=precomputed_return["contact"],
                 target=precomputed_return["target"],
                 sol=precomputed_return["solution"],
+                profile=precomputed_return.get("profile") or (precomputed_return.get("solution") or {}).get("profile"),
             )
             self._planned_returns.append(plan)
             self._planned_returns.sort(key=lambda p: p["move_start_t"])
@@ -242,19 +363,21 @@ class ReturnSolver:
             return False
 
         points = getattr(ball_obj, "points", [])
-        contact = self._pick_contact_point(points)
-        if not contact:
-            self.ui.update_return_info("Return skipped: no playable contact")
-            self._handled_ball_ids.add(ball_id)
-            return False
-
         landing = {"x": points[-1][0], "y": points[-1][1]} if points else None
         if not landing:
             self._handled_ball_ids.add(ball_id)
             return False
 
-        profile, target = self._choose_target_point(landing)
-        profile, target = self._apply_return_policy(profile, target, return_policy)
+        profile, target, contact_cfg = self._resolve_profile_target_and_contact(landing, return_policy)
+        if profile is None or target is None:
+            self.ui.update_return_info("Return skipped: return policy target missing/invalid")
+            self._handled_ball_ids.add(ball_id)
+            return False
+        contact = self._pick_contact_point(points, preferred_profile=profile, contact_cfg=contact_cfg)
+        if not contact:
+            self.ui.update_return_info("Return skipped: no playable contact")
+            self._handled_ball_ids.add(ball_id)
+            return False
 
         serve_dt = 0.01
         if len(points) >= 2:
@@ -268,6 +391,7 @@ class ReturnSolver:
             "contact": contact,
             "target": target,
             "profile": profile,
+            "contact_cfg": contact_cfg,
             "serve_dt": serve_dt,
         }
         self._pending_requests.append(request)
@@ -291,13 +415,13 @@ class ReturnSolver:
         if not points:
             return None
 
-        contact = self._pick_contact_point(points)
+        landing = {"x": points[-1][0], "y": points[-1][1]}
+        profile, target, contact_cfg = self._resolve_profile_target_and_contact(landing, return_policy)
+        if profile is None or target is None:
+            return None
+        contact = self._pick_contact_point(points, preferred_profile=profile, contact_cfg=contact_cfg)
         if not contact:
             return None
-
-        landing = {"x": points[-1][0], "y": points[-1][1]}
-        profile, target = self._choose_target_point(landing)
-        profile, target = self._apply_return_policy(profile, target, return_policy)
         serve_type = self._classify_serve_type(landing)
         cache_key = (
             serve_type[0],
@@ -325,12 +449,13 @@ class ReturnSolver:
                 serve_dt = est_dt
 
         stats = {}
+        tol_xy, precompute_iters, _runtime_iters = self._solver_params_for_profile(profile)
         sol = solve_return_to_target(
             start_xyz=(contact["x"], contact["y"], contact["z"]),
             target_xyz=(target["x"], target["y"], target["z"]),
             shot_profile=profile,
-            tol_xy=0.32,
-            max_iter_speed=8,
+            tol_xy=tol_xy,
+            max_iter_speed=precompute_iters,
             debug_stats=stats,
         )
         if not sol or not sol.get("sim"):
@@ -344,11 +469,14 @@ class ReturnSolver:
 
         sim_points = sol["sim"].get("points", [])
         sol["sim"]["points"] = self._downsample_points(sim_points, serve_dt * RETURN_POINT_STEP_MULT)
+        sol["contact_cfg"] = pycopy.deepcopy(contact_cfg)
 
         result = {
             "contact": contact,
             "target": target,
             "solution": sol,
+            "profile": profile,
+            "contact_cfg": pycopy.deepcopy(contact_cfg),
         }
 
         self._precompute_cache[cache_key] = pycopy.deepcopy(result)
@@ -380,6 +508,12 @@ class ReturnSolver:
             sampled.append(points[-1])
         return sampled
 
+    def _solver_params_for_profile(self, profile):
+        # Net shots need tighter landing tolerance to avoid spilling outside singles width.
+        if profile == "net_soft":
+            return 0.08, 20, 16
+        return 0.32, 8, 6
+
     def _solve_one_pending_request(self):
         if not self.enabled or self.game_state.serve_mode != 1:
             self._pending_requests.clear()
@@ -396,12 +530,13 @@ class ReturnSolver:
 
         t0 = time.perf_counter()
         stats = {}
+        tol_xy, _precompute_iters, runtime_iters = self._solver_params_for_profile(req["profile"])
         sol = solve_return_to_target(
             start_xyz=(req["contact"]["x"], req["contact"]["y"], req["contact"]["z"]),
             target_xyz=(req["target"]["x"], req["target"]["y"], req["target"]["z"]),
             shot_profile=req["profile"],
-            tol_xy=0.32,
-            max_iter_speed=6,
+            tol_xy=tol_xy,
+            max_iter_speed=runtime_iters,
             debug_stats=stats,
         )
 
@@ -417,12 +552,13 @@ class ReturnSolver:
 
         sim_points = sol["sim"].get("points", [])
         sol["sim"]["points"] = self._downsample_points(sim_points, req["serve_dt"] * RETURN_POINT_STEP_MULT)
+        sol["contact_cfg"] = pycopy.deepcopy(req.get("contact_cfg") or {})
 
         contact = req["contact"]
         target = req["target"]
         ball_id = req["ball_id"]
 
-        plan = self._build_plan_from_solution(ball_obj=ball, contact=contact, target=target, sol=sol)
+        plan = self._build_plan_from_solution(ball_obj=ball, contact=contact, target=target, sol=sol, profile=req["profile"])
 
         self._planned_returns.append(plan)
         self._planned_returns.sort(key=lambda p: p["move_start_t"])
@@ -450,7 +586,11 @@ class ReturnSolver:
             self._active_plan = plan
             plan["state"] = "moving"
             contact = plan["contact"]
-            self._player_target = self._intercept_position_from_contact(contact)
+            self._player_target = self._intercept_position_from_contact(
+                contact,
+                profile=plan.get("profile"),
+                contact_cfg=plan.get("contact_cfg"),
+            )
             self.player_state = "move_to_intercept"
             return
 
