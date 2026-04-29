@@ -154,5 +154,9 @@ RETURN_CAMERA = {
     "pitch_max": 70.0,
 }
 
+CAMERA = {
+    "fov": 130.0,
+}
+
 # Temporary debug instrumentation for return solving.
 RETURN_DEBUG_LOG = False

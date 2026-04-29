@@ -68,6 +68,8 @@ def apply_view_mode():
     if 'player' not in globals():
         return
 
+    camera.fov = CAMERA["fov"]
+
     if state.is_player_view == 0:
         player.enabled = True
         camera.parent = player.camera_pivot
@@ -83,7 +85,7 @@ def apply_view_mode():
     elif state.is_player_view == 2:
         player.enabled = False
         camera.parent = scene
-        camera.position = (0, 3.0, 12)
+        camera.position = (0, 2.5, 8.0)
         state.return_cam_yaw = 180.0
         state.return_cam_pitch = 0.0
         camera.rotation = (state.return_cam_pitch, state.return_cam_yaw, 0)
