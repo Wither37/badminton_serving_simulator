@@ -49,6 +49,14 @@ class ReturnSolver:
         if RETURN_DEBUG_LOG:
             print(f"[ReturnDebug] {msg}")
 
+    def _format_return_attempt(self, profile, target):
+        if not isinstance(target, dict):
+            return str(profile or "return")
+        try:
+            return f"{profile} to x={target['y']:.2f}, y={target['x']:.2f}"
+        except Exception:
+            return str(profile or "return")
+
     def set_enabled(self, enabled):
         self.enabled = enabled
         self.return_player.visible = enabled
@@ -357,7 +365,7 @@ class ReturnSolver:
             return False
         contact = self._pick_contact_point(points, preferred_profile=profile, contact_cfg=contact_cfg)
         if not contact:
-            self.ui.update_return_info("Return skipped: no playable contact")
+            self.ui.update_return_info(f"Return failed: {self._format_return_attempt(profile, target)} (no playable contact)")
             self._handled_ball_ids.add(ball_id)
             return False
 
@@ -525,7 +533,9 @@ class ReturnSolver:
         )
 
         if not sol or not sol.get("sim"):
-            self.ui.update_return_info("Return skipped: no valid trajectory")
+            self.ui.update_return_info(
+                f"Return failed: {self._format_return_attempt(req['profile'], req['target'])} (no valid trajectory)"
+            )
             self._debug(
                 "runtime no-solution "
                 f"profile={req['profile']} target=({req['target']['x']:.2f},{req['target']['y']:.2f}) "

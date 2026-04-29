@@ -39,6 +39,7 @@ class UIManager:
         )
         
         self.landings = []
+        self._visibility_snapshot = None
     
     def update_landing_text(self):
         txt = "Landings:\n"
@@ -80,16 +81,13 @@ class UIManager:
 R: Reset
 T: Toggle Trajectory ({traj})
 V: Toggle View ({view_mode})
+Esc: Open Menu Frontend
 N: Toggle Serve Mode ({serve_text})
     B: Toggle Dynamic Returns ({returns_mode}) [Manual only]
-    0-9: Enqueue Menu (Manual)
-Enter: Serve (Manual) / Run Next Queued Menu
-X: Toggle Delete Menu Mode"""
+Enter: Serve (Manual) / Run Next Queued Menu"""
         
         if serve_mode == 1:
             instructions += "\n[MANUAL MODE: MENU QUEUE ENABLED]"
-            if menu_delete_mode:
-                instructions += "\n[DELETE MODE: press 1-9 to delete menu]"
         
         return instructions
     
@@ -102,6 +100,32 @@ X: Toggle Delete Menu Mode"""
 
     def hide_return_info(self):
         self.return_info_text.visible = False
+
+    def set_simulator_ui_visible(self, visible):
+        if not visible and self._visibility_snapshot is None:
+            self._visibility_snapshot = {
+                "landing": self.landing_text.visible,
+                "instructions": self.instructions_text.visible,
+                "return_info": self.return_info_text.visible,
+                "menu_list": self.menu_list_text.visible,
+                "queue_list": self.queue_list_text.visible,
+            }
+
+        self.landing_text.visible = visible
+        self.instructions_text.visible = visible
+        if not visible:
+            self.return_info_text.visible = False
+            self.menu_list_text.visible = False
+            self.queue_list_text.visible = False
+            return
+
+        snapshot = self._visibility_snapshot or {}
+        self.landing_text.visible = snapshot.get("landing", True)
+        self.instructions_text.visible = snapshot.get("instructions", True)
+        self.return_info_text.visible = snapshot.get("return_info", False)
+        self.menu_list_text.visible = snapshot.get("menu_list", False)
+        self.queue_list_text.visible = snapshot.get("queue_list", False)
+        self._visibility_snapshot = None
     
     def show_menu_list(self, menus):
         """Display list of available menus (right panel)."""

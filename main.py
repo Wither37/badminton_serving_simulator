@@ -4,6 +4,7 @@ from ursina.prefabs.first_person_controller import FirstPersonController
 from ursina.shaders import lit_with_shadows_shader, unlit_shader
 import threading
 import queue
+import webbrowser
 
 from utils.config import *
 from utils.court import Court
@@ -11,7 +12,15 @@ from utils.ui import UIManager
 from utils.return_solver import ReturnSolver
 from utils.MQTTSimulator_menu import MQTTSimulator
 from utils.BallFlight import BallFlight
-from utils.menu_storage import list_menus, get_menu_drills_for_simulator, delete_menu
+from utils.html_menu_frontend import HtmlMenuFrontendServer
+from utils.menu_frontend import RETURN_TARGET_PRESETS
+from utils.menu_storage import (
+    list_menus,
+    load_menu,
+    get_menu_drills_for_simulator,
+    delete_menu,
+    set_menu_return_policy,
+)
 
 # Global state
 class GameState:
@@ -40,12 +49,19 @@ class GameState:
         self.precompute_menu_id = None
         self.precompute_drills = []
         self.precompute_returns = {}
+        self.precompute_failures = {}
         self.precompute_index = 0
         self.precompute_hide_info_on_first_serve = False
         self.serve_start_cooldown = 0.0
         self.return_cam_yaw = 180.0
         self.return_cam_pitch = 0.0
         self.wait_for_player_home = False
+        self.frontend_selected_menu_id = None
+        self.frontend_selected_scope = "default"
+        self.frontend_status = ""
+        self.frontend_overlay_color = None
+        self.frontend_window_color = None
+        self.html_frontend_url = ""
 
 
 def apply_view_mode():
@@ -168,6 +184,7 @@ def clear_precompute_state():
     state.precompute_menu_id = None
     state.precompute_drills = []
     state.precompute_returns = {}
+    state.precompute_failures = {}
     state.precompute_index = 0
     state.precompute_hide_info_on_first_serve = False
     state.wait_for_player_home = False
@@ -201,6 +218,9 @@ def enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=False):
     for idx, drill in enumerate(drills):
         params = drill.get('parameters', {})
         simulator_position = drill.get('simulator_position')
+        failed_return = None
+        if precompute_locked:
+            failed_return = (precomputed_map or {}).get(idx) is None
         action_item = {
             'speed': params.get('speed', 30.0),
             'yaw': params.get('yaw', 0.0),
@@ -208,6 +228,8 @@ def enqueue_menu_drills(drills, precomputed_map=None, precompute_locked=False):
             'interval_ms': drill.get('interval', 1000),
             'return_plan': (precomputed_map or {}).get(idx),
             'return_policy': drill.get('simulator_return_policy'),
+            'return_failed': failed_return,
+            'return_failure_message': drill.get('return_failure_message'),
             'simulator_position': simulator_position,
             # In precompute mode, never do runtime solving during playback.
             'precompute_locked': precompute_locked,
@@ -244,8 +266,426 @@ def queue_menu_actions(menu_id, precompute_returns=False):
 
     return len(drills)
 
+
+def _return_policy_label(policy):
+    if not isinstance(policy, dict):
+        return "auto"
+
+    profile = policy.get("profile") or "unknown"
+    target = policy.get("target") or {}
+    try:
+        return f"{profile} to x={float(target.get('x')):.2f}, y={float(target.get('y')):.2f}"
+    except (TypeError, ValueError):
+        return str(profile)
+
+
+def _return_failure_message(drill_index, drill, reason="no solution"):
+    return f"Return failed: drill {drill_index + 1} {_return_policy_label(drill.get('simulator_return_policy'))} ({reason})"
+
+
+def _default_return_policy(profile="clear"):
+    target_options = _frontend_target_options(profile)
+    first_target = next(iter(target_options.values()))
+    return {"profile": profile, "target": dict(first_target)}
+
+
+def _frontend_target_options(profile=None):
+    if profile in RETURN_TARGET_PRESETS:
+        return RETURN_TARGET_PRESETS[profile]
+    return RETURN_TARGET_PRESETS["clear"]
+
+
+def _target_label_for_policy(policy):
+    target = (policy or {}).get("target")
+    if not isinstance(target, dict):
+        return "unset"
+
+    try:
+        tx = float(target.get("x"))
+        ty = float(target.get("y"))
+    except (TypeError, ValueError):
+        return "custom"
+
+    profile = (policy or {}).get("profile")
+    for label, preset in _frontend_target_options(profile).items():
+        if abs(tx - preset["x"]) < 0.02 and abs(ty - preset["y"]) < 0.02:
+            return label
+    return f"x={tx:.2f}, y={ty:.2f}"
+
+
+def _policy_target_allowed(policy):
+    target = (policy or {}).get("target")
+    profile = (policy or {}).get("profile")
+    if not isinstance(target, dict):
+        return False
+
+    try:
+        tx = float(target.get("x"))
+        ty = float(target.get("y"))
+    except (TypeError, ValueError):
+        return False
+
+    for preset in _frontend_target_options(profile).values():
+        if abs(tx - preset["x"]) < 0.02 and abs(ty - preset["y"]) < 0.02:
+            return True
+    return False
+
+
+def _selected_menu():
+    if not state.frontend_selected_menu_id:
+        return None
+    return load_menu(state.frontend_selected_menu_id)
+
+
+def _selected_drills(menu):
+    return ((menu.get("payload") or {}).get("menu") or {}).get("drills") or []
+
+
+def _selected_scope_drill_index(menu):
+    if state.frontend_selected_scope == "default":
+        return None
+
+    try:
+        drill_index = int(state.frontend_selected_scope)
+    except (TypeError, ValueError):
+        state.frontend_selected_scope = "default"
+        return None
+
+    drills = _selected_drills(menu)
+    if drill_index < 0 or drill_index >= len(drills):
+        state.frontend_selected_scope = "default"
+        return None
+    return drill_index
+
+
+def _selected_policy(menu):
+    simulator_meta = menu.get("simulator") or {}
+    default_policy = simulator_meta.get("default_return_policy")
+    if not isinstance(default_policy, dict):
+        default_policy = _default_return_policy()
+
+    drill_index = _selected_scope_drill_index(menu)
+    if drill_index is None:
+        return default_policy
+
+    overrides = simulator_meta.get("drill_overrides") or {}
+    override = overrides.get(str(drill_index))
+    if isinstance(override, dict) and isinstance(override.get("return_policy"), dict):
+        return override.get("return_policy")
+    return default_policy
+
+
+def _queue_items_for_frontend():
+    menu_name_by_id = {m["id"]: m["menuName"] for m in stored_menus}
+    return [
+        {
+            "id": menu_id,
+            "menuName": menu_name_by_id.get(menu_id, str(menu_id)),
+        }
+        for menu_id in state.menu_execution_queue
+    ]
+
+
+def refresh_frontend(status=None):
+    global stored_menus
+
+    if status is not None:
+        state.frontend_status = status
+
+    if stored_menus and not any(m["id"] == state.frontend_selected_menu_id for m in stored_menus):
+        state.frontend_selected_menu_id = stored_menus[0]["id"]
+        state.frontend_selected_scope = "default"
+    elif not stored_menus:
+        state.frontend_selected_menu_id = None
+        state.frontend_selected_scope = "default"
+
+    menu = _selected_menu()
+    if menu:
+        _selected_scope_drill_index(menu)
+
+
+def reload_menus_for_frontend(status=None):
+    global stored_menus
+    stored_menus = list_menus()
+    refresh_frontend(status=status)
+
+
+def set_frontend_open(opened):
+    reload_menus_for_frontend()
+    if state.html_frontend_url:
+        print(f"[Frontend] Browser frontend: {state.html_frontend_url}")
+        webbrowser.open(state.html_frontend_url)
+
+
+def ensure_manual_mode_for_frontend():
+    global stored_menus
+
+    if state.serve_mode == 1:
+        return
+
+    state.serve_mode = 1
+    state.menu_delete_mode = False
+    state.serve_start_cooldown = 0.0
+    stored_menus = list_menus()
+    ui.hide_menu_list()
+    ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                          state.menu_delete_mode, state.show_returns)
+
+
+def frontend_select_menu(menu_id):
+    state.frontend_selected_menu_id = menu_id
+    state.frontend_selected_scope = "default"
+    refresh_frontend(status=f"Selected menu: {menu_id}")
+
+
+def frontend_select_scope(scope):
+    state.frontend_selected_scope = scope
+    refresh_frontend()
+
+
+def frontend_enqueue_selected():
+    menu = _selected_menu()
+    if not menu:
+        refresh_frontend(status="No menu selected")
+        return
+
+    ensure_manual_mode_for_frontend()
+    state.menu_execution_queue.append(menu["id"])
+    refresh_frontend(status=f"Queued: {menu['menuName']}")
+
+
+def frontend_delete_selected():
+    global stored_menus
+
+    menu = _selected_menu()
+    if not menu:
+        refresh_frontend(status="No menu selected")
+        return
+
+    menu_id = menu["id"]
+    menu_name = menu["menuName"]
+    if delete_menu(menu_id):
+        state.menu_execution_queue = [mid for mid in state.menu_execution_queue if mid != menu_id]
+        stored_menus = list_menus()
+        refresh_frontend(status=f"Deleted: {menu_name}")
+    else:
+        refresh_frontend(status=f"Delete failed: {menu_id}")
+
+
+def frontend_clear_queue():
+    state.menu_execution_queue.clear()
+    clear_serve_queue()
+    state.manual_menu_running = False
+    refresh_frontend(status="Queue cleared")
+
+
+def frontend_update_policy(profile=None, target_label=None):
+    menu = _selected_menu()
+    if not menu:
+        refresh_frontend(status="No menu selected")
+        return
+
+    current = dict(_selected_policy(menu) or _default_return_policy())
+    current["profile"] = profile or current.get("profile") or "clear"
+    if target_label:
+        target_options = _frontend_target_options(current["profile"])
+        if target_label not in target_options:
+            refresh_frontend(status=f"Target is not available for {current['profile']}")
+            return
+        current["target"] = dict(target_options[target_label])
+    elif not _policy_target_allowed(current):
+        current["target"] = _default_return_policy(current["profile"])["target"]
+
+    drill_index = _selected_scope_drill_index(menu)
+    ok = set_menu_return_policy(menu["id"], current, drill_index=drill_index)
+    scope_label = "default" if drill_index is None else f"drill {drill_index + 1}"
+    reload_menus_for_frontend(
+        status=f"Saved {scope_label} return policy" if ok else "Failed to save return policy"
+    )
+
+
+def html_update_policy(menu_id, scope, profile, target_label):
+    global stored_menus
+
+    menu = load_menu(menu_id)
+    if not menu:
+        state.frontend_status = "No menu selected"
+        return
+
+    target_options = _frontend_target_options(profile)
+    if target_label not in target_options:
+        state.frontend_status = f"Target is not available for {profile}"
+        return
+
+    drill_index = None
+    if scope != "default":
+        try:
+            drill_index = int(scope)
+        except (TypeError, ValueError):
+            state.frontend_status = "Invalid drill scope"
+            return
+
+    ok = set_menu_return_policy(
+        menu_id,
+        {"profile": profile, "target": dict(target_options[target_label])},
+        drill_index=drill_index,
+    )
+    stored_menus = list_menus()
+    scope_label = "default" if drill_index is None else f"drill {drill_index + 1}"
+    state.frontend_status = f"Saved {scope_label} return policy" if ok else "Failed to save return policy"
+
+
+def get_html_frontend_state():
+    menu_items = []
+    for meta in list_menus():
+        full = load_menu(meta["id"]) or {}
+        payload = full.get("payload") or {}
+        drills = (payload.get("menu") or {}).get("drills") or []
+        item = dict(meta)
+        item["drill_count"] = len(drills) if isinstance(drills, list) else 0
+        item["simulator"] = full.get("simulator") or {}
+        menu_items.append(item)
+
+    menu_name_by_id = {m["id"]: m["menuName"] for m in menu_items}
+    return {
+        "menus": menu_items,
+        "queue": [
+            {"id": menu_id, "menuName": menu_name_by_id.get(menu_id, str(menu_id))}
+            for menu_id in state.menu_execution_queue
+        ],
+        "targets": RETURN_TARGET_PRESETS,
+        "manual_menu_running": state.manual_menu_running,
+        "precompute_in_progress": state.precompute_in_progress,
+        "status": state.frontend_status,
+    }
+
+
+def process_html_frontend_commands():
+    global stored_menus
+
+    if "html_frontend_commands" not in globals():
+        return
+
+    processed = 0
+    while processed < 8:
+        try:
+            command = html_frontend_commands.get_nowait()
+        except queue.Empty:
+            break
+
+        action = command.get("action")
+        menu_id = command.get("menu_id")
+
+        if action == "enqueue":
+            menu = load_menu(menu_id)
+            if menu:
+                ensure_manual_mode_for_frontend()
+                state.menu_execution_queue.append(menu_id)
+                state.frontend_status = f"Queued: {menu.get('menuName', menu_id)}"
+            else:
+                state.frontend_status = "Menu not found"
+        elif action == "delete":
+            if delete_menu(menu_id):
+                state.menu_execution_queue = [mid for mid in state.menu_execution_queue if mid != menu_id]
+                stored_menus = list_menus()
+                state.frontend_status = f"Deleted: {menu_id}"
+            else:
+                state.frontend_status = f"Delete failed: {menu_id}"
+        elif action == "clear_queue":
+            state.menu_execution_queue.clear()
+            clear_serve_queue()
+            state.manual_menu_running = False
+            state.frontend_status = "Queue cleared"
+        elif action == "set_policy":
+            html_update_policy(
+                menu_id=menu_id,
+                scope=command.get("scope", "default"),
+                profile=command.get("profile", "clear"),
+                target_label=command.get("target_label", ""),
+            )
+        else:
+            state.frontend_status = f"Unknown action: {action}"
+
+        processed += 1
+
+
+def frontend_toggle_returns():
+    ensure_manual_mode_for_frontend()
+    state.show_returns = not state.show_returns
+    solver.set_enabled(state.show_returns)
+    if not state.show_returns:
+        solver.clear_entities()
+        if state.is_player_view == 3:
+            state.is_player_view = 2
+            apply_view_mode()
+    else:
+        if state.is_player_view > _max_view_mode():
+            state.is_player_view = 2
+        apply_view_mode()
+    ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                          state.menu_delete_mode, state.show_returns)
+    refresh_frontend(status="Dynamic returns: ON" if state.show_returns else "Dynamic returns: OFF")
+
+
+def run_next_manual_item():
+    ensure_manual_mode_for_frontend()
+
+    if state.precompute_in_progress:
+        print("[App] Precompute is running. Please wait.")
+        refresh_frontend(status="Precompute is running")
+        return
+    if state.manual_menu_running:
+        print("[App] A queued menu is already running")
+        refresh_frontend(status="A queued menu is already running")
+    elif state.menu_execution_queue:
+        next_menu_id = state.menu_execution_queue.pop(0)
+        reset_before_menu_execution()
+        if state.show_returns:
+            drill_count = start_menu_precompute(next_menu_id)
+        else:
+            drill_count = queue_menu_actions(next_menu_id, precompute_returns=False)
+        if drill_count > 0:
+            if state.show_returns:
+                print(f"[App] Precomputing menu {next_menu_id} ({drill_count} actions)")
+                refresh_frontend(status=f"Precomputing menu: {next_menu_id}")
+            else:
+                state.manual_menu_running = True
+                state.serve_timer = state.serve_interval
+                print(f"[App] Executing queued menu {next_menu_id} ({drill_count} actions)")
+                refresh_frontend(status=f"Executing menu: {next_menu_id}")
+        else:
+            print(f"[App] Menu {next_menu_id} has no playable drills")
+            refresh_frontend(status=f"No playable drills: {next_menu_id}")
+    elif not serve_queue.empty():
+        params = serve_queue.get()
+        state.current_speed = params['speed']
+        state.current_yaw = params['yaw']
+        state.current_pitch = params['pitch']
+        state.serve_interval = params['interval_ms'] / 1000.0
+        start_x, start_y, start_z = _simulator_global_to_physics_start(params.get('simulator_position'))
+        create_ball(
+            state.current_speed,
+            state.current_yaw,
+            state.current_pitch,
+            state.serve_interval,
+            start_x=start_x,
+            start_y=start_y,
+            start_z=start_z,
+            precomputed_return=params.get('return_plan'),
+            allow_runtime_return_solve=not params.get('precompute_locked', False),
+            return_policy=params.get('return_policy'),
+        )
+        if params.get('return_failed') and params.get('return_failure_message'):
+            ui.update_return_info(params.get('return_failure_message'), visible=True)
+        refresh_frontend(status="Served one queued action")
+    else:
+        print("[App] No queued menu. Press Esc to open frontend and enqueue a menu.")
+        refresh_frontend(status="No queued menu")
+
 def update():
     """主更新迴圈"""
+    process_html_frontend_commands()
+
     if state.is_player_view in (1, 2) or (state.is_player_view == 3 and state.show_returns):
         state.return_cam_yaw += mouse.velocity[0] * RETURN_CAMERA["sensitivity"]
         state.return_cam_pitch -= mouse.velocity[1] * RETURN_CAMERA["sensitivity"]
@@ -270,7 +710,7 @@ def update():
             drill = state.precompute_drills[state.precompute_index]
             params = drill.get('parameters', {})
             start_x, start_y, start_z = _simulator_global_to_physics_start(drill.get('simulator_position'))
-            state.precompute_returns[state.precompute_index] = solver.precompute_return_for_serve(
+            result = solver.precompute_return_for_serve(
                 speed_mps=params.get('speed', 30.0),
                 yaw_deg=params.get('yaw', 0.0),
                 pitch_deg=params.get('pitch', 20.0),
@@ -279,15 +719,26 @@ def update():
                 start_z=start_z,
                 return_policy=drill.get('simulator_return_policy'),
             )
+            state.precompute_returns[state.precompute_index] = result
+            if result is None:
+                message = _return_failure_message(state.precompute_index, drill)
+                state.precompute_failures[state.precompute_index] = message
+                drill['return_failure_message'] = message
+                ui.update_return_info(message, visible=True)
             state.precompute_index += 1
 
-        ui.update_return_info(f"Precomputing return trajectories... {state.precompute_index}/{total}", visible=True)
+        if not state.precompute_failures:
+            ui.update_return_info(f"Precomputing return trajectories... {state.precompute_index}/{total}", visible=True)
 
         if state.precompute_index >= total:
             valid_count = sum(1 for v in state.precompute_returns.values() if v is not None)
             no_solution_count = total - valid_count
+            failure_text = ""
+            if state.precompute_failures:
+                first_failure = next(iter(state.precompute_failures.values()))
+                failure_text = f"\n{first_failure}"
             ui.update_return_info(
-                f"Precompute done: {valid_count}/{total} ready, {no_solution_count} skipped",
+                f"Precompute done: {valid_count}/{total} ready, {no_solution_count} skipped{failure_text}",
                 visible=True,
             )
             finished_menu_id = state.precompute_menu_id
@@ -364,8 +815,11 @@ def update():
                     allow_runtime_return_solve=not params.get('precompute_locked', False),
                     return_policy=params.get('return_policy'),
                 )
+                if params.get('return_failed') and params.get('return_failure_message'):
+                    ui.update_return_info(params.get('return_failure_message'), visible=True)
                 if state.precompute_hide_info_on_first_serve:
-                    ui.hide_return_info()
+                    if not params.get('return_failed'):
+                        ui.hide_return_info()
                     state.precompute_hide_info_on_first_serve = False
 
                 if strict_player_return_gate:
@@ -396,6 +850,10 @@ def input(key):
     """按鍵處理"""
     global stored_menus
 
+    if key == 'escape':
+        set_frontend_open(True)
+        return
+
     if key == 'q':
         application.quit()
 
@@ -423,9 +881,8 @@ def input(key):
         solver.set_enabled(False)
         solver.clear_entities()
         clear_serve_queue()
-        if state.serve_mode == 1:
-            ui.show_menu_list(stored_menus)
-            ui.update_queue_list(state.menu_execution_queue)
+        ui.hide_menu_list()
+        refresh_frontend(status="Reset complete")
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                               state.menu_delete_mode, state.show_returns)
 
@@ -466,67 +923,17 @@ def input(key):
         
         if state.serve_mode == 1:  # Manual mode
             stored_menus = list_menus()
-            ui.show_menu_list(stored_menus)
-            ui.update_queue_list(state.menu_execution_queue)
+            ui.hide_menu_list()
         else:
             ui.hide_menu_list()
+        refresh_frontend()
         
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                              state.menu_delete_mode, state.show_returns)
-
-    if key == 'x' and state.serve_mode == 1:
-        state.menu_delete_mode = not state.menu_delete_mode
-        mode_label = "ON" if state.menu_delete_mode else "OFF"
-        print(f"[App] Menu delete mode: {mode_label}")
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                               state.menu_delete_mode, state.show_returns)
 
     if key == 'enter':
         if state.serve_mode == 1:  # Manual mode
-            if state.precompute_in_progress:
-                print("[App] Precompute is running. Please wait.")
-                return
-            if state.manual_menu_running:
-                print("[App] A queued menu is already running")
-            elif state.menu_execution_queue:
-                next_menu_id = state.menu_execution_queue.pop(0)
-                reset_before_menu_execution()
-                if state.show_returns:
-                    drill_count = start_menu_precompute(next_menu_id)
-                else:
-                    drill_count = queue_menu_actions(next_menu_id, precompute_returns=False)
-                if drill_count > 0:
-                    if state.show_returns:
-                        print(f"[App] Precomputing menu {next_menu_id} ({drill_count} actions)")
-                    else:
-                        state.manual_menu_running = True
-                        state.serve_timer = state.serve_interval
-                        print(f"[App] Executing queued menu {next_menu_id} ({drill_count} actions)")
-                else:
-                    print(f"[App] Menu {next_menu_id} has no playable drills")
-                ui.show_menu_list(stored_menus)
-                ui.update_queue_list(state.menu_execution_queue)
-            elif not serve_queue.empty():
-                params = serve_queue.get()
-                state.current_speed = params['speed']
-                state.current_yaw = params['yaw']
-                state.current_pitch = params['pitch']
-                state.serve_interval = params['interval_ms'] / 1000.0  # Convert ms to seconds
-                start_x, start_y, start_z = _simulator_global_to_physics_start(params.get('simulator_position'))
-                create_ball(
-                    state.current_speed,
-                    state.current_yaw,
-                    state.current_pitch,
-                    state.serve_interval,
-                    start_x=start_x,
-                    start_y=start_y,
-                    start_z=start_z,
-                    precomputed_return=params.get('return_plan'),
-                    allow_runtime_return_solve=not params.get('precompute_locked', False),
-                    return_policy=params.get('return_policy'),
-                )
-            else:
-                print("[App] No queued menu. Press 1-9 to enqueue a menu.")
+            run_next_manual_item()
 
     if key == 'b':
         if state.serve_mode != 1:
@@ -537,52 +944,16 @@ def input(key):
                 solver.clear_entities()
             ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                           state.menu_delete_mode, state.show_returns)
+            refresh_frontend(status="Switch to manual mode for dynamic returns")
             return
 
-        state.show_returns = not state.show_returns
-        solver.set_enabled(state.show_returns)
-        if not state.show_returns:
-            solver.clear_entities()
-            if state.is_player_view == 3:
-                state.is_player_view = 2
-                apply_view_mode()
-        else:
-            # Ensure new return-follow view mode is available immediately.
-            if state.is_player_view > _max_view_mode():
-                state.is_player_view = 2
-            apply_view_mode()
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns)
-
-    # === RETURN VIEW / MENU QUEUE KEYS: 0-9 ===
-    if key in '0123456789':
-        if state.serve_mode == 1:
-            menu_index = int(key) - 1
-            if 0 <= menu_index < len(stored_menus):
-                selected_menu = stored_menus[menu_index]
-                menu_id = selected_menu['id']
-                if state.menu_delete_mode:
-                    if delete_menu(menu_id):
-                        # Remove deleted menu id from pending execution queue.
-                        state.menu_execution_queue = [mid for mid in state.menu_execution_queue if mid != menu_id]
-                        stored_menus = list_menus()
-                        print(f"[App] Deleted menu {menu_index+1}: {selected_menu['menuName']} (id={menu_id})")
-                    else:
-                        print(f"[App] Failed to delete menu id={menu_id}")
-                else:
-                    state.menu_execution_queue.append(menu_id)
-                    print(f"[App] Enqueued menu {menu_index+1}: {selected_menu['menuName']} (id={menu_id})")
-                ui.show_menu_list(stored_menus)
-                ui.update_queue_list(state.menu_execution_queue)
-        elif state.show_returns:
-            # Keep numeric keys reserved for future return-debug controls.
-            pass
+        frontend_toggle_returns()
 
 if __name__ == '__main__':
     state = GameState()
 
     # App setup
-    app = Ursina()
+    app = Ursina(icon='', size=(1280, 720))
     Entity.default_shader = lit_with_shadows_shader
 
     # Create scene
@@ -624,6 +995,14 @@ if __name__ == '__main__':
     # Initialize menu storage
     stored_menus = list_menus()
     print(f"[App] Loaded {len(stored_menus)} stored menus")
+    if stored_menus:
+        state.frontend_selected_menu_id = stored_menus[0]["id"]
+    refresh_frontend(status=f"Loaded {len(stored_menus)} menus")
+
+    html_frontend_commands = queue.Queue()
+    html_frontend = HtmlMenuFrontendServer(get_html_frontend_state, html_frontend_commands)
+    state.html_frontend_url = html_frontend.start()
+    print(f"[Frontend] HTML frontend ready: {state.html_frontend_url}")
 
     # MQTT setup
     serve_queue = queue.Queue()

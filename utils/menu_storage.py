@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Any
 
 STORAGE_FILE = "menus.json"
 MAX_STORED_MENUS = 9
+RETURN_POLICY_PROFILES = ("clear", "drive", "lift", "drop", "block", "net_soft", "smash")
 
 
 def _normalize_storage(storage: Dict[str, Any]) -> Dict[str, Any]:
@@ -185,6 +186,98 @@ def get_menu_drills_for_simulator(menu_id: str) -> Optional[List[Dict[str, Any]]
             drill["simulator_position"] = copy.deepcopy(menu_simulator_position)
 
     return runtime_drills
+
+
+def get_menu_drill_count(menu_id: str) -> int:
+    """Return the number of drills in a stored menu."""
+    menu = load_menu(menu_id)
+    if not menu:
+        return 0
+
+    payload = menu.get("payload") or {}
+    drills = (payload.get("menu") or {}).get("drills") or []
+    return len(drills) if isinstance(drills, list) else 0
+
+
+def _normalize_return_policy(policy: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Validate and normalize a simulator return policy before saving it."""
+    if not isinstance(policy, dict):
+        return None
+
+    profile = policy.get("profile")
+    if isinstance(profile, str):
+        profile = profile.strip().lower()
+    if profile not in RETURN_POLICY_PROFILES:
+        return None
+
+    target = policy.get("target")
+    if not isinstance(target, dict):
+        return None
+
+    try:
+        target_x = float(target.get("x"))
+        target_y = float(target.get("y"))
+    except (TypeError, ValueError):
+        return None
+
+    normalized = {
+        "profile": profile,
+        "target": {
+            "x": target_x,
+            "y": target_y,
+        },
+    }
+
+    for key in ("contact_depth_offset", "contact_lateral_offset"):
+        if policy.get(key) is None:
+            continue
+        try:
+            normalized[key] = float(policy.get(key))
+        except (TypeError, ValueError):
+            pass
+
+    return normalized
+
+
+def set_menu_return_policy(menu_id: str, policy: Dict[str, Any], drill_index: Optional[int] = None) -> bool:
+    """Set a menu default return policy or one drill override in menus.json."""
+    normalized_policy = _normalize_return_policy(policy)
+    if normalized_policy is None:
+        return False
+
+    storage = _load_storage()
+    for menu in storage.get("menus", []):
+        if menu["id"] != menu_id and menu["call_id"] != menu_id:
+            continue
+
+        simulator = menu.get("simulator")
+        if not isinstance(simulator, dict):
+            simulator = {}
+            menu["simulator"] = simulator
+
+        simulator["schema_version"] = simulator.get("schema_version") or 1
+
+        if drill_index is None:
+            simulator["default_return_policy"] = normalized_policy
+        else:
+            try:
+                idx = int(drill_index)
+            except (TypeError, ValueError):
+                return False
+
+            if idx < 0 or idx >= get_menu_drill_count(menu_id):
+                return False
+
+            drill_overrides = simulator.get("drill_overrides")
+            if not isinstance(drill_overrides, dict):
+                drill_overrides = {}
+                simulator["drill_overrides"] = drill_overrides
+
+            drill_overrides[str(idx)] = {"return_policy": normalized_policy}
+
+        return _save_storage(storage)
+
+    return False
 
 
 def delete_menu(menu_id: str) -> bool:
