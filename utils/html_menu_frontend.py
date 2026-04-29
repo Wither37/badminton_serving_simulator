@@ -371,7 +371,7 @@ class HtmlMenuFrontendServer:
             def log_message(self, _format, *args):
                 return
 
-        self.httpd = ThreadingHTTPServer((self.host, self.port), Handler)
+        self.httpd = ThreadingHTTPServer((self.host, self.port), Handler) # 放在另一個thread，避免干擾模擬器正在讀取menus.json的主線程
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         return self.url
