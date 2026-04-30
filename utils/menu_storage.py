@@ -140,14 +140,6 @@ def list_menus() -> List[Dict[str, Any]]:
     ]
 
 
-def get_menu_payload(menu_id: str) -> Optional[Dict[str, Any]]:
-    """Get full menu payload for re-execution."""
-    menu = load_menu(menu_id)
-    if menu:
-        return menu.get("payload")
-    return None
-
-
 def get_menu_drills_for_simulator(menu_id: str) -> Optional[List[Dict[str, Any]]]:
     """Return simulator runtime drills with local-only overrides applied.
 
@@ -291,10 +283,3 @@ def delete_menu(menu_id: str) -> bool:
             print(f"[MenuStorage] Deleted menu '{removed['menuName']}' (id={menu_id})")
             return True
     return False
-
-
-def clear_all_menus() -> None:
-    """Clear all stored menus."""
-    storage = {"menus": [], "menu_count": 0}
-    _save_storage(storage)
-    print("[MenuStorage] Cleared all menus")

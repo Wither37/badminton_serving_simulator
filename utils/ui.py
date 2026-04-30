@@ -22,24 +22,7 @@ class UIManager:
             visible=False
         )
 
-        self.menu_list_text = Text(
-            position=window.top_right + Vec2(-0.04, -0.10),
-            origin=(1, 0),
-            text='',
-            scale=0.82,
-            visible=False,
-        )
-
-        self.queue_list_text = Text(
-            position=window.top_right + Vec2(-0.04, -0.28),
-            origin=(1, 0),
-            text='',
-            scale=0.82,
-            visible=False,
-        )
-        
         self.landings = []
-        self._visibility_snapshot = None
     
     def update_landing_text(self):
         txt = "Landings:\n"
@@ -100,69 +83,3 @@ Enter: Serve (Manual) / Run Next Queued Menu"""
 
     def hide_return_info(self):
         self.return_info_text.visible = False
-
-    def set_simulator_ui_visible(self, visible):
-        if not visible and self._visibility_snapshot is None:
-            self._visibility_snapshot = {
-                "landing": self.landing_text.visible,
-                "instructions": self.instructions_text.visible,
-                "return_info": self.return_info_text.visible,
-                "menu_list": self.menu_list_text.visible,
-                "queue_list": self.queue_list_text.visible,
-            }
-
-        self.landing_text.visible = visible
-        self.instructions_text.visible = visible
-        if not visible:
-            self.return_info_text.visible = False
-            self.menu_list_text.visible = False
-            self.queue_list_text.visible = False
-            return
-
-        snapshot = self._visibility_snapshot or {}
-        self.landing_text.visible = snapshot.get("landing", True)
-        self.instructions_text.visible = snapshot.get("instructions", True)
-        self.return_info_text.visible = snapshot.get("return_info", False)
-        self.menu_list_text.visible = snapshot.get("menu_list", False)
-        self.queue_list_text.visible = snapshot.get("queue_list", False)
-        self._visibility_snapshot = None
-    
-    def show_menu_list(self, menus):
-        """Display list of available menus (right panel)."""
-        txt = "AVAILABLE MENUS\n"
-        txt += "----------------\n"
-        if not menus:
-            txt += "(none)"
-        else:
-            for i, menu in enumerate(menus[:9]):  # Show first 9 (keys 1-9)
-                name = menu['menuName']
-                if len(name) > 24:
-                    name = f"{name[:21]}..."
-                txt += f"{i+1}: {name}\n"
-            if len(menus) > 9:
-                txt += f"... +{len(menus)-9} more"
-        
-        self.menu_list_text.text = txt
-        self.menu_list_text.visible = True
-    
-    def update_queue_list(self, queued_menu_ids):
-        """Display queued menu IDs in right panel (under available menu list)."""
-        txt = "EXECUTION QUEUE\n"
-        txt += "---------------\n"
-        if not queued_menu_ids:
-            txt += "(empty)"
-        else:
-            for i, menu_id in enumerate(queued_menu_ids[:5]):
-                label = str(menu_id)
-                if len(label) > 26:
-                    label = f"{label[:23]}..."
-                txt += f"{i+1}. {label}\n"
-            if len(queued_menu_ids) > 5:
-                txt += f"... +{len(queued_menu_ids)-5} more"
-        
-        self.queue_list_text.text = txt
-        self.queue_list_text.visible = True
-    
-    def hide_menu_list(self):
-        self.menu_list_text.visible = False
-        self.queue_list_text.visible = False

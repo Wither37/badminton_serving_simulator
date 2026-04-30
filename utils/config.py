@@ -128,6 +128,42 @@ RETURN_PROFILES = {
     },
 }
 
+RETURN_TARGET_PRESETS = {
+    "clear": {
+        "Center deep (x=0.00, y=-6.50)": {"x": 0.0, "y": -6.5},
+        "Center deep safe (x=0.00, y=-6.35)": {"x": 0.0, "y": -6.35},
+        "Left deep (x=-2.35, y=-6.50)": {"x": -2.35, "y": -6.5},
+        "Right deep (x=2.35, y=-6.50)": {"x": 2.35, "y": -6.5},
+        "Left back line (x=-2.35, y=-6.55)": {"x": -2.35, "y": -6.55},
+        "Right back line (x=2.35, y=-6.55)": {"x": 2.35, "y": -6.55},
+    },
+    "drive": {
+        "Center deep drive (x=0.00, y=-6.50)": {"x": 0.0, "y": -6.5},
+        "Left drive (x=-2.35, y=-5.80)": {"x": -2.35, "y": -5.8},
+        "Right drive (x=2.35, y=-5.80)": {"x": 2.35, "y": -5.8},
+    },
+    "lift": {
+        "Left deep lift (x=-2.35, y=-6.50)": {"x": -2.35, "y": -6.5},
+        "Right deep lift (x=2.35, y=-6.50)": {"x": 2.35, "y": -6.5},
+    },
+    "drop": {
+        "Left front drop (x=-2.35, y=-1.00)": {"x": -2.35, "y": -1.0},
+        "Right front drop (x=2.35, y=-1.00)": {"x": 2.35, "y": -1.0},
+    },
+    "block": {
+        "Left block (x=-2.35, y=-3.30)": {"x": -2.35, "y": -3.3},
+        "Right block (x=2.35, y=-3.30)": {"x": 2.35, "y": -3.3},
+    },
+    "net_soft": {
+        "Left soft net (x=-2.20, y=-1.60)": {"x": -2.2, "y": -1.6},
+        "Right soft net (x=2.20, y=-1.60)": {"x": 2.2, "y": -1.6},
+    },
+    "smash": {
+        "Left deep smash (x=-2.35, y=-6.50)": {"x": -2.35, "y": -6.5},
+        "Right deep smash (x=2.35, y=-6.50)": {"x": 2.35, "y": -6.5},
+    },
+}
+
 RETURN_RUNTIME = {
     "precompute_serve_warmup": 0.50,
     "precompute_cache_max": 128,

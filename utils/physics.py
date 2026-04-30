@@ -13,40 +13,6 @@ def bm_ball(t, x, alpha=DRAG_K, g=G):
     return [x[3], x[4], x[5], -alpha * x[3] * v, -alpha * x[4] * v, -g - alpha * x[5] * v]
 
 
-def physics_predict3d(starting_point, second_point, flight_time=10, touch_ground_cut=True, alpha=DRAG_K, g=G):
-    dt = second_point[3] - starting_point[3]
-    if dt <= 0:
-        logging.warning("physics_predict3d: invalid timestamp delta")
-        return None
-
-    fps = 1 / dt
-    initial_velocity = (second_point[:3] - starting_point[:3]) * fps
-
-    traj = solve_ivp(
-        lambda t, y: bm_ball(t, y, alpha=alpha, g=g),
-        [0, flight_time],
-        np.concatenate((starting_point[:3], initial_velocity)),
-        t_eval=np.arange(0, flight_time, 1 / fps),
-    )
-
-    if not traj.success:
-        logging.warning(f"solve_ivp failed: {traj.message}")
-        return None
-
-    xyz = np.swapaxes(traj.y[:3, :], 0, 1)
-    t = np.expand_dims(traj.t, axis=1)
-    trajectories = np.concatenate((xyz, t), axis=1)
-
-    if touch_ground_cut:
-        for i in range(trajectories.shape[0] - 1):
-            if trajectories[i, 2] >= 0 and trajectories[i + 1, 2] <= 0:
-                trajectories = trajectories[: i + 1, :]
-                break
-
-    trajectories[:, 3] += starting_point[3]
-    return trajectories
-
-
 def physics_predict3d_v2(starting_point, v, fps, flight_time=10, touch_ground_cut=True, alpha=DRAG_K, g=G):
     if fps <= 0:
         logging.warning("physics_predict3d_v2: fps must be > 0")
@@ -234,68 +200,6 @@ def simulate_trajectory(
     if refine_heights:
         result["hit_points"] = hit_points
     return result
-
-
-def find_fastest_clearing_shot(start_x, target_x, start_z, yaw_deg, start_y=0.0, tol=0.1, max_iter_pitch=10, max_iter_speed=10):
-    max_speed = 100.0
-    min_speed = 0.0
-    high_pitch = 90.0
-    low_pitch = -90.0
-
-    best_speed = None
-    best_pitch = None
-
-    for _ in range(max_iter_pitch):
-        if high_pitch - low_pitch < 0.01:
-            break
-        pitch = (low_pitch + high_pitch) / 2.0
-
-        low_speed = min_speed
-        high_speed = max_speed
-        found = False
-        local_best_speed = -inf
-
-        for _ in range(max_iter_speed):
-            if high_speed - low_speed < 0.01:
-                break
-            mid_speed = (low_speed + high_speed) / 2.0
-
-            sim = simulate_trajectory(mid_speed, yaw_deg, pitch, start_x=start_x, start_y=start_y, start_z=start_z, refine_net=True, refine_heights=False)
-            land = sim.get("landing")
-            net = sim.get("cross_net")
-
-            if not land or land["x"] < 0:
-                high_speed = mid_speed
-                continue
-
-            clearance = net["clearance"] if net else 0.0
-            if clearance <= 0.05:
-                low_speed = mid_speed
-                continue
-
-            land_err = abs(land["x"] - target_x)
-            if land_err > tol:
-                if land["x"] < target_x:
-                    high_speed = mid_speed
-                else:
-                    low_speed = mid_speed
-                continue
-
-            found = True
-            low_speed = mid_speed
-            local_best_speed = mid_speed
-
-        if found:
-            best_speed = local_best_speed
-            best_pitch = pitch
-            high_pitch = pitch
-        else:
-            low_pitch = pitch
-
-    if best_pitch is not None and best_speed is not None:
-        sim = simulate_trajectory(best_speed, yaw_deg, best_pitch, start_x=start_x, start_y=start_y, start_z=start_z, dt_base=0.01, refine_net=True, refine_heights=False)
-        return best_speed, best_pitch, sim
-    return None, None, None
 
 
 def _return_candidate_rank(candidate, preferred_speed=None):

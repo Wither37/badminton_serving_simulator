@@ -13,7 +13,6 @@ from utils.return_solver import ReturnSolver
 from utils.MQTTSimulator_menu import MQTTSimulator
 from utils.BallFlight import BallFlight
 from utils.html_menu_frontend import HtmlMenuFrontendServer
-from utils.menu_frontend import RETURN_TARGET_PRESETS
 from utils.menu_storage import (
     list_menus,
     load_menu,
@@ -56,11 +55,7 @@ class GameState:
         self.return_cam_yaw = 180.0
         self.return_cam_pitch = 0.0
         self.wait_for_player_home = False
-        self.frontend_selected_menu_id = None
-        self.frontend_selected_scope = "default"
         self.frontend_status = ""
-        self.frontend_overlay_color = None
-        self.frontend_window_color = None
         self.html_frontend_url = ""
 
 
@@ -285,125 +280,15 @@ def _return_failure_message(drill_index, drill, reason="no solution"):
     return f"Return failed: drill {drill_index + 1} {_return_policy_label(drill.get('simulator_return_policy'))} ({reason})"
 
 
-def _default_return_policy(profile="clear"):
-    target_options = _frontend_target_options(profile)
-    first_target = next(iter(target_options.values()))
-    return {"profile": profile, "target": dict(first_target)}
-
-
 def _frontend_target_options(profile=None):
     if profile in RETURN_TARGET_PRESETS:
         return RETURN_TARGET_PRESETS[profile]
     return RETURN_TARGET_PRESETS["clear"]
 
 
-def _target_label_for_policy(policy):
-    target = (policy or {}).get("target")
-    if not isinstance(target, dict):
-        return "unset"
-
-    try:
-        tx = float(target.get("x"))
-        ty = float(target.get("y"))
-    except (TypeError, ValueError):
-        return "custom"
-
-    profile = (policy or {}).get("profile")
-    for label, preset in _frontend_target_options(profile).items():
-        if abs(tx - preset["x"]) < 0.02 and abs(ty - preset["y"]) < 0.02:
-            return label
-    return f"x={tx:.2f}, y={ty:.2f}"
-
-
-def _policy_target_allowed(policy):
-    target = (policy or {}).get("target")
-    profile = (policy or {}).get("profile")
-    if not isinstance(target, dict):
-        return False
-
-    try:
-        tx = float(target.get("x"))
-        ty = float(target.get("y"))
-    except (TypeError, ValueError):
-        return False
-
-    for preset in _frontend_target_options(profile).values():
-        if abs(tx - preset["x"]) < 0.02 and abs(ty - preset["y"]) < 0.02:
-            return True
-    return False
-
-
-def _selected_menu():
-    if not state.frontend_selected_menu_id:
-        return None
-    return load_menu(state.frontend_selected_menu_id)
-
-
-def _selected_drills(menu):
-    return ((menu.get("payload") or {}).get("menu") or {}).get("drills") or []
-
-
-def _selected_scope_drill_index(menu):
-    if state.frontend_selected_scope == "default":
-        return None
-
-    try:
-        drill_index = int(state.frontend_selected_scope)
-    except (TypeError, ValueError):
-        state.frontend_selected_scope = "default"
-        return None
-
-    drills = _selected_drills(menu)
-    if drill_index < 0 or drill_index >= len(drills):
-        state.frontend_selected_scope = "default"
-        return None
-    return drill_index
-
-
-def _selected_policy(menu):
-    simulator_meta = menu.get("simulator") or {}
-    default_policy = simulator_meta.get("default_return_policy")
-    if not isinstance(default_policy, dict):
-        default_policy = _default_return_policy()
-
-    drill_index = _selected_scope_drill_index(menu)
-    if drill_index is None:
-        return default_policy
-
-    overrides = simulator_meta.get("drill_overrides") or {}
-    override = overrides.get(str(drill_index))
-    if isinstance(override, dict) and isinstance(override.get("return_policy"), dict):
-        return override.get("return_policy")
-    return default_policy
-
-
-def _queue_items_for_frontend():
-    menu_name_by_id = {m["id"]: m["menuName"] for m in stored_menus}
-    return [
-        {
-            "id": menu_id,
-            "menuName": menu_name_by_id.get(menu_id, str(menu_id)),
-        }
-        for menu_id in state.menu_execution_queue
-    ]
-
-
 def refresh_frontend(status=None):
-    global stored_menus
-
     if status is not None:
         state.frontend_status = status
-
-    if stored_menus and not any(m["id"] == state.frontend_selected_menu_id for m in stored_menus):
-        state.frontend_selected_menu_id = stored_menus[0]["id"]
-        state.frontend_selected_scope = "default"
-    elif not stored_menus:
-        state.frontend_selected_menu_id = None
-        state.frontend_selected_scope = "default"
-
-    menu = _selected_menu()
-    if menu:
-        _selected_scope_drill_index(menu)
 
 
 def reload_menus_for_frontend(status=None):
@@ -429,81 +314,8 @@ def ensure_manual_mode_for_frontend():
     state.menu_delete_mode = False
     state.serve_start_cooldown = 0.0
     stored_menus = list_menus()
-    ui.hide_menu_list()
     ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                           state.menu_delete_mode, state.show_returns)
-
-
-def frontend_select_menu(menu_id):
-    state.frontend_selected_menu_id = menu_id
-    state.frontend_selected_scope = "default"
-    refresh_frontend(status=f"Selected menu: {menu_id}")
-
-
-def frontend_select_scope(scope):
-    state.frontend_selected_scope = scope
-    refresh_frontend()
-
-
-def frontend_enqueue_selected():
-    menu = _selected_menu()
-    if not menu:
-        refresh_frontend(status="No menu selected")
-        return
-
-    ensure_manual_mode_for_frontend()
-    state.menu_execution_queue.append(menu["id"])
-    refresh_frontend(status=f"Queued: {menu['menuName']}")
-
-
-def frontend_delete_selected():
-    global stored_menus
-
-    menu = _selected_menu()
-    if not menu:
-        refresh_frontend(status="No menu selected")
-        return
-
-    menu_id = menu["id"]
-    menu_name = menu["menuName"]
-    if delete_menu(menu_id):
-        state.menu_execution_queue = [mid for mid in state.menu_execution_queue if mid != menu_id]
-        stored_menus = list_menus()
-        refresh_frontend(status=f"Deleted: {menu_name}")
-    else:
-        refresh_frontend(status=f"Delete failed: {menu_id}")
-
-
-def frontend_clear_queue():
-    state.menu_execution_queue.clear()
-    clear_serve_queue()
-    state.manual_menu_running = False
-    refresh_frontend(status="Queue cleared")
-
-
-def frontend_update_policy(profile=None, target_label=None):
-    menu = _selected_menu()
-    if not menu:
-        refresh_frontend(status="No menu selected")
-        return
-
-    current = dict(_selected_policy(menu) or _default_return_policy())
-    current["profile"] = profile or current.get("profile") or "clear"
-    if target_label:
-        target_options = _frontend_target_options(current["profile"])
-        if target_label not in target_options:
-            refresh_frontend(status=f"Target is not available for {current['profile']}")
-            return
-        current["target"] = dict(target_options[target_label])
-    elif not _policy_target_allowed(current):
-        current["target"] = _default_return_policy(current["profile"])["target"]
-
-    drill_index = _selected_scope_drill_index(menu)
-    ok = set_menu_return_policy(menu["id"], current, drill_index=drill_index)
-    scope_label = "default" if drill_index is None else f"drill {drill_index + 1}"
-    reload_menus_for_frontend(
-        status=f"Saved {scope_label} return policy" if ok else "Failed to save return policy"
-    )
 
 
 def html_update_policy(menu_id, scope, profile, target_label):
@@ -883,7 +695,6 @@ def input(key):
         solver.set_enabled(False)
         solver.clear_entities()
         clear_serve_queue()
-        ui.hide_menu_list()
         refresh_frontend(status="Reset complete")
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
                               state.menu_delete_mode, state.show_returns)
@@ -925,9 +736,6 @@ def input(key):
         
         if state.serve_mode == 1:  # Manual mode
             stored_menus = list_menus()
-            ui.hide_menu_list()
-        else:
-            ui.hide_menu_list()
         refresh_frontend()
         
         ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
@@ -997,8 +805,6 @@ if __name__ == '__main__':
     # Initialize menu storage
     stored_menus = list_menus()
     print(f"[App] Loaded {len(stored_menus)} stored menus")
-    if stored_menus:
-        state.frontend_selected_menu_id = stored_menus[0]["id"]
     refresh_frontend(status=f"Loaded {len(stored_menus)} menus")
 
     html_frontend_commands = queue.Queue()

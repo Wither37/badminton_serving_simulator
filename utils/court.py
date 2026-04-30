@@ -41,7 +41,7 @@ class Court:
         net_line_thickness = 0.014
         net_depth = 0.018
         top_tape_thickness = 0.045
-        bottom_tape_thickness = 0.035
+        bottom_tape_thickness = 0
         mesh_color = color.rgba(35/255, 35/255, 35/255, 210/255)
         tape_color = color.rgba(245/255, 245/255, 235/255, 1)
         post_color = color.rgb(255/255, 210/255, 25/255)
