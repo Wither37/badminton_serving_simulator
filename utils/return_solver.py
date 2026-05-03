@@ -504,6 +504,8 @@ class ReturnSolver:
             return 0.16, 20, 16
         if profile == "lift":
             return 0.32, 16, 12
+        if profile == "smash":
+            return 0.32, 12, 10
         return 0.32, 8, 6
 
     def _solve_one_pending_request(self):

@@ -258,7 +258,7 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
         flight_t_min, flight_t_max = 0.30, 1.80
     elif shot_profile == "smash":
         # Smash return: fast, flatter trajectory, low net margin.
-        pitch_candidates = [-18, -14, -10, -6, -2]
+        pitch_candidates = [-18, -14, -13, -10, -8, -6, -2]
         apex_rise_min, apex_rise_max = -1.0, 1.0
         flight_t_min, flight_t_max = 0.12, 0.85
     elif shot_profile == "net_soft":
@@ -296,8 +296,8 @@ def solve_return_to_target(start_xyz, target_xyz, shot_profile="auto", tol_xy=0.
     }
 
     for pitch_deg in pitch_candidates:
-        low_speed = 2.0
-        high_speed = 85.0
+        low_speed = float(profile_cfg.get("min_speed_mps", 2.0))
+        high_speed = float(profile_cfg.get("max_speed_mps", 85.0))
         local_best = None
 
         for _ in range(max_iter_speed):

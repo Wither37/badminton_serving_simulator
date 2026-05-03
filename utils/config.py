@@ -60,7 +60,7 @@ SIMULATOR_DEFAULT_POSITION = {
 
 # ----- 2) Physics -----
 G = 9.81
-DRAG_K = 0.2
+DRAG_K = 0.2151959552
 RELEASE_HEIGHT = 1.2
 TRAIL_INTERVAL = 0.01
 PHYSICS = {
@@ -103,6 +103,9 @@ RETURN_PROFILES = {
         "height_range_m": [3.00, 3.20],
         "contact_offset_m": {"x": 0.00, "y": 0.50},
         "clearance_m": {"min": RETURN_SHOT_CLEARANCE_MIN, "max": None},
+        "preferred_speed_mps": 145.0,
+        "min_speed_mps": 120.0,
+        "max_speed_mps": 170.0,
     },
     "clear": {
         "height_range_m": [2.50, 2.80],

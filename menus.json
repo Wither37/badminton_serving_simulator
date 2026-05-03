@@ -21,7 +21,7 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": -11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
@@ -29,23 +29,23 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": 11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": -9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": 9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             },
@@ -53,7 +53,7 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": -11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
@@ -61,23 +61,23 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": 11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": -9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": 9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             },
@@ -85,7 +85,7 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": -11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
@@ -93,23 +93,23 @@
               "parameters": {
                 "speed": 19.0,
                 "yaw": 11.8,
-                "pitch": 9
+                "pitch": 11
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": -9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             },
             {
               "parameters": {
-                "speed": 58.5,
+                "speed": 85.0,
                 "yaw": 9.6,
-                "pitch": -2
+                "pitch": -5
               },
               "interval": 1500
             }
@@ -258,65 +258,65 @@
           "drills": [
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": -16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": -12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": 16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": 12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": -16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": -12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": 16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": 12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": -16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": -12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": 16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": 12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": -16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": -12.0,
+                "pitch": 8
               },
               "interval": 1100
             },
             {
               "parameters": {
-                "speed": 23.0,
-                "yaw": 16.77,
-                "pitch": 14
+                "speed": 30.0,
+                "yaw": 12.0,
+                "pitch": 8
               },
               "interval": 1100
             }
@@ -541,7 +541,7 @@
               "profile": "net_soft",
               "target": {
                 "x": -2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
@@ -559,7 +559,7 @@
               "profile": "net_soft",
               "target": {
                 "x": 2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
@@ -577,7 +577,7 @@
               "profile": "net_soft",
               "target": {
                 "x": -2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
@@ -595,7 +595,7 @@
               "profile": "net_soft",
               "target": {
                 "x": 2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
@@ -613,7 +613,7 @@
               "profile": "net_soft",
               "target": {
                 "x": -2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
@@ -631,7 +631,7 @@
               "profile": "net_soft",
               "target": {
                 "x": 2.2,
-                "y": -1.6
+                "y": -1.5
               }
             }
           },
