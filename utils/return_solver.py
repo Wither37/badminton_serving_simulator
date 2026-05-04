@@ -675,7 +675,7 @@ class ReturnSolver:
 
         return_entity = Entity(
             model="sphere",
-            scale=0.15,
+            scale=0.25,
             color=color.orange,
             position=(contact["y"], contact["z"], contact["x"]),
         )
@@ -752,7 +752,7 @@ class ReturnSolver:
 
                         anim["trail_timer"] += time.dt
                         if anim["trail_timer"] >= RETURN_ANIMATION["trail_interval"]:
-                            trail = Entity(model="sphere", scale=0.03, color=color.orange, position=entity.position)
+                            trail = Entity(model="sphere", scale=0.1, color=color.orange, position=entity.position)
                             anim["trails"].append(trail)
                             self.game_state.return_trails.append(trail)
                             anim["trail_timer"] -= RETURN_ANIMATION["trail_interval"]

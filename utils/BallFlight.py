@@ -31,7 +31,7 @@ class BallFlight:
             model='sphere',
             position=(start_y, start_z, start_x),
             color=color.yellow,
-            scale=0.15
+            scale=0.25
         )
 
         self.trail_entities = []
@@ -83,8 +83,8 @@ class BallFlight:
         if self.trail_timer >= TRAIL_INTERVAL:
             trail = Entity(
                 model='sphere',
-                color=color.red,
-                scale=0.03,
+                color=color.yellow,
+                scale=0.1,
                 position=self.entity.position
             )
             self.trail_entities.append(trail)
