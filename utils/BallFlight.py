@@ -28,13 +28,22 @@ class BallFlight:
         self.hide_after_return_contact = False
 
         self.entity = Entity(
-            model='sphere',
+            model=SERVE_VISUAL["model"],
             position=(start_y, start_z, start_x),
-            color=color.yellow,
-            scale=0.25
+            scale=SERVE_VISUAL["scale"],
         )
+        if len(self.points) > 1:
+            self._orient_to_tangent(Vec3(self.points[1][1], self.points[1][2], self.points[1][0]))
 
         self.trail_entities = []
+
+    def _orient_to_tangent(self, target_position):
+        direction = target_position - self.entity.position
+        if direction.length() <= 1e-6:
+            return
+
+        self.entity.look_at(target_position, axis=SERVE_VISUAL.get("look_axis", "forward"))
+        self.entity.rotation = self.entity.rotation + Vec3(*SERVE_VISUAL.get("rotation_offset", (0, 0, 0)))
 
     def update(self):
         if self.finished:
@@ -65,6 +74,7 @@ class BallFlight:
 
                 # Ursina: (y, z, x)
                 self.entity.position = (y, z, x)
+                self._orient_to_tangent(Vec3(next_pos[1], next_pos[2], next_pos[0]))
                 self._update_trail()
                 return
 
@@ -95,7 +105,6 @@ class BallFlight:
         self.entity.visible = False
 
     def land(self):
-        self.entity.color = color.red
         print(f"Landed at (x={self.entity.z:.2f}, y={self.entity.x:.2f})")
 
         self.landing = {'x': self.entity.z, 'y': self.entity.x}

@@ -49,6 +49,17 @@ SERVE_VISUAL = {
     "max_active_balls": 3,
     "trail_clear_delay": 0.20,
     "hide_after_return_contact": True,
+    "model": "badminton.glb",
+    "scale": 0.03,
+    "look_axis": "forward",
+    "rotation_offset": (180, 0, 0),
+}
+
+RETURN_BALL_VISUAL = {
+    "model": "badminton.glb",
+    "scale": 0.03,
+    "look_axis": "forward",
+    "rotation_offset": (180, 0, 0),
 }
 
 # Default simulator launch point in global coordinates (X, Y, Z).
