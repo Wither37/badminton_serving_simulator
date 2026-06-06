@@ -176,6 +176,7 @@ class ReturnSolver:
         marker = Entity(
             model=LANDING_MARKER_VISUAL_RETURN["model"],
             scale=LANDING_MARKER_VISUAL_RETURN["scale"],
+            color=color.rgba(*LANDING_MARKER_VISUAL_RETURN["color_rgba"]),
             rotation=LANDING_MARKER_VISUAL_RETURN["rotation"],
             position=(final_pos[1], LANDING_MARKER_VISUAL_RETURN["height"], final_pos[0]),
         )

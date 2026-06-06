@@ -114,6 +114,7 @@ class BallFlight:
             marker = Entity(
                 model=LANDING_MARKER_VISUAL_SERVE["model"],
                 scale=LANDING_MARKER_VISUAL_SERVE["scale"],
+                color=color.rgba(*LANDING_MARKER_VISUAL_SERVE["color_rgba"]),
                 rotation=LANDING_MARKER_VISUAL_SERVE["rotation"],
                 position=(self.entity.x, LANDING_MARKER_VISUAL_SERVE["height"], self.entity.z)
             )

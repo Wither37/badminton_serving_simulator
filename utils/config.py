@@ -45,6 +45,11 @@ Z_LONG_SERVICE_DOUBLES_FAR = DOUBLES_LONG_SERVICE_LINE
 LINE_THICKNESS = 0.04
 LINE_Y_OFFSET = 0.02
 
+DECORATIVE_COURTS = {
+    "enabled": True,
+    "side_gap": 5.0,
+}
+
 SERVE_VISUAL = {
     "max_active_balls": 3,
     "trail_clear_delay": 0.20,
@@ -63,17 +68,19 @@ RETURN_BALL_VISUAL = {
 }
 
 LANDING_MARKER_VISUAL_SERVE = {
-    "model": "badminton.glb",
-    "scale": 0.025,
-    "rotation": (180, 0, 0),
-    "height": 0.15,
+    "model": "sphere",
+    "scale": 0.1,
+    "color_rgba": (0, 0, 1, 1),
+    "rotation": (0, 0, 0),
+    "height": 0.05,
 }
 
 LANDING_MARKER_VISUAL_RETURN = {
-    "model": "badminton.glb",
-    "scale": 0.025,
+    "model": "sphere",
+    "scale": 0.1,
+    "color_rgba": (0, 0, 1, 1),
     "rotation": (0, 0, 0),
-    "height": 0.15,
+    "height": 0.05,
 }
 
 # Default simulator launch point in global coordinates (X, Y, Z).
