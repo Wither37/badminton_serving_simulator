@@ -32,6 +32,7 @@ class ReturnSolver:
         self._handled_ball_ids = set()
 
         self._active_return_animations = []
+        self._return_landing_markers = []
         self._player_returned_home_pulse = False
 
         player_home = RETURN_PLAYER["home"]
@@ -167,6 +168,21 @@ class ReturnSolver:
         for e in list(self.game_state.return_trails):
             destroy(e)
         self.game_state.return_trails.clear()
+        for e in self._return_landing_markers:
+            destroy(e)
+        self._return_landing_markers.clear()
+
+    def _add_return_landing_marker(self, final_pos):
+        marker = Entity(
+            model=LANDING_MARKER_VISUAL_RETURN["model"],
+            scale=LANDING_MARKER_VISUAL_RETURN["scale"],
+            rotation=LANDING_MARKER_VISUAL_RETURN["rotation"],
+            position=(final_pos[1], LANDING_MARKER_VISUAL_RETURN["height"], final_pos[0]),
+        )
+        self._return_landing_markers.append(marker)
+
+        while len(self._return_landing_markers) > SERVE_VISUAL["max_active_balls"]:
+            destroy(self._return_landing_markers.pop(0))
 
     def stop_animation(self):
         for anim in self._active_return_animations:
@@ -777,6 +793,7 @@ class ReturnSolver:
                 if not advanced:
                     final_pos = points[-1]
                     entity.position = (final_pos[1], final_pos[2], final_pos[0])
+                    self._add_return_landing_marker(final_pos)
                     anim["landed"] = True
                     anim["clear_timer"] = RETURN_ANIMATION["trail_clear_delay"]
             else:

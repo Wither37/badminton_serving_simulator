@@ -62,10 +62,17 @@ RETURN_BALL_VISUAL = {
     "rotation_offset": (180, 0, 0),
 }
 
-LANDING_MARKER_VISUAL = {
+LANDING_MARKER_VISUAL_SERVE = {
     "model": "badminton.glb",
     "scale": 0.025,
     "rotation": (180, 0, 0),
+    "height": 0.15,
+}
+
+LANDING_MARKER_VISUAL_RETURN = {
+    "model": "badminton.glb",
+    "scale": 0.025,
+    "rotation": (0, 0, 0),
     "height": 0.15,
 }
 

@@ -112,10 +112,10 @@ class BallFlight:
 
         if not (SERVE_VISUAL["hide_after_return_contact"] and self.hide_after_return_contact):
             marker = Entity(
-                model=LANDING_MARKER_VISUAL["model"],
-                scale=LANDING_MARKER_VISUAL["scale"],
-                rotation=LANDING_MARKER_VISUAL["rotation"],
-                position=(self.entity.x, LANDING_MARKER_VISUAL["height"], self.entity.z)
+                model=LANDING_MARKER_VISUAL_SERVE["model"],
+                scale=LANDING_MARKER_VISUAL_SERVE["scale"],
+                rotation=LANDING_MARKER_VISUAL_SERVE["rotation"],
+                position=(self.entity.x, LANDING_MARKER_VISUAL_SERVE["height"], self.entity.z)
             )
             self.state.landing_markers.append(marker)
 
