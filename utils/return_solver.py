@@ -9,6 +9,19 @@ from utils.config import *
 from utils.physics import simulate_trajectory, solve_return_to_target
 
 
+def _trajectory_point_to_world(point):
+    return Vec3(point[1], point[2], point[0])
+
+
+def _orient_return_entity_to_tangent(entity, target_position):
+    direction = target_position - entity.position
+    if direction.length() <= 1e-6:
+        return
+
+    entity.look_at(target_position, axis=RETURN_BALL_VISUAL.get("look_axis", "forward"))
+    entity.rotation = entity.rotation + Vec3(*RETURN_BALL_VISUAL.get("rotation_offset", (0, 0, 0)))
+
+
 class ReturnSolver:
     def __init__(self, ball, ui_manager, game_state):
         self.ball = ball
@@ -674,11 +687,12 @@ class ReturnSolver:
             ball.hide_remaining_after_return_contact()
 
         return_entity = Entity(
-            model="sphere",
-            scale=0.25,
-            color=color.orange,
+            model=RETURN_BALL_VISUAL["model"],
+            scale=RETURN_BALL_VISUAL["scale"],
             position=(contact["y"], contact["z"], contact["x"]),
         )
+        if len(points) > 1:
+            _orient_return_entity_to_tangent(return_entity, _trajectory_point_to_world(points[1]))
         self._active_return_animations.append(
             {
                 "entity": return_entity,
@@ -749,6 +763,7 @@ class ReturnSolver:
                         y = curr_pos[1] + frac * (next_pos[1] - curr_pos[1])
                         z = curr_pos[2] + frac * (next_pos[2] - curr_pos[2])
                         entity.position = (y, z, x)
+                        _orient_return_entity_to_tangent(entity, _trajectory_point_to_world(next_pos))
 
                         anim["trail_timer"] += time.dt
                         if anim["trail_timer"] >= RETURN_ANIMATION["trail_interval"]:
