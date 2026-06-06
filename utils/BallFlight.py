@@ -112,12 +112,14 @@ class BallFlight:
 
         if not (SERVE_VISUAL["hide_after_return_contact"] and self.hide_after_return_contact):
             marker = Entity(
-                model='sphere',
-                scale=0.1,
-                color=color.blue,
-                position=(self.entity.x, 0.05, self.entity.z)
+                model=LANDING_MARKER_VISUAL["model"],
+                scale=LANDING_MARKER_VISUAL["scale"],
+                rotation=LANDING_MARKER_VISUAL["rotation"],
+                position=(self.entity.x, LANDING_MARKER_VISUAL["height"], self.entity.z)
             )
             self.state.landing_markers.append(marker)
+
+        self.entity.visible = False
 
         self.ui.landings.append({
             'pos': (self.entity.z, self.entity.x),
