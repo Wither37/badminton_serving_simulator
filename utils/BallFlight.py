@@ -2,6 +2,32 @@ from ursina import *
 from utils.physics import simulate_trajectory
 from utils.config import *
 
+
+def _hex_to_ursina_color(hex_color, fallback):
+    if not isinstance(hex_color, str):
+        return fallback
+    raw = hex_color.strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    if len(raw) != 6:
+        return fallback
+    try:
+        r = int(raw[0:2], 16)
+        g = int(raw[2:4], 16)
+        b = int(raw[4:6], 16)
+    except ValueError:
+        return fallback
+    return color.rgb(r / 255.0, g / 255.0, b / 255.0)
+
+
+def _trail_interval_for_density(density, fallback_density=4):
+    try:
+        density_key = int(density)
+    except (TypeError, ValueError):
+        density_key = fallback_density
+    return TRAIL_DENSITY_INTERVALS.get(density_key, TRAIL_DENSITY_INTERVALS[fallback_density])
+
+
 class BallFlight:
     def __init__(self, speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT):
         self.speed = speed_mps
@@ -86,19 +112,20 @@ class BallFlight:
     def _update_trail(self):
         if self.hide_after_return_contact:
             return
-        if not self.state.show_trajectory:
+        if not getattr(self.state, "serve_trajectory_visible", self.state.show_trajectory):
             return
 
         self.trail_timer += time.dt
-        if self.trail_timer >= TRAIL_INTERVAL:
+        trail_interval = _trail_interval_for_density(getattr(self.state, "serve_trail_density", 4), 4)
+        if self.trail_timer >= trail_interval:
             trail = Entity(
                 model='sphere',
-                color=color.yellow,
-                scale=0.1,
+                color=_hex_to_ursina_color(getattr(self.state, "serve_trail_color", "#facc15"), color.yellow),
+                scale=getattr(self.state, "serve_trail_size", 0.1),
                 position=self.entity.position
             )
             self.trail_entities.append(trail)
-            self.trail_timer -= TRAIL_INTERVAL
+            self.trail_timer -= trail_interval
 
     def hide_remaining_after_return_contact(self):
         self.hide_after_return_contact = True
@@ -122,11 +149,12 @@ class BallFlight:
 
         self.entity.visible = False
 
-        self.ui.landings.append({
-            'pos': (self.entity.z, self.entity.x),
-            'params': (self.speed, self.yaw, self.pitch)
-        })
-        self.ui.update_landing_text()
+        if hasattr(self.state, "record_serve_log"):
+            self.state.record_serve_log(
+                getattr(self, "log_index", None),
+                (self.entity.z, self.entity.x),
+                (self.speed, self.yaw, self.pitch),
+            )
 
         self.simulator.client.publish(self.simulator.status_topic, "serve=done")
 

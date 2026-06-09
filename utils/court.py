@@ -6,11 +6,15 @@ class Court:
     def __init__(self):
         self.entities = []
         self._create_ground()
+        if INDOOR_SCENE["enabled"]:
+            self._create_indoor_shell()
         self._create_play_area(x_offset=0.0, decorative=False)
         if DECORATIVE_COURTS["enabled"]:
             side_offset = COURT_W + DECORATIVE_COURTS["side_gap"]
             self._create_play_area(x_offset=-side_offset, decorative=True)
             self._create_play_area(x_offset=side_offset, decorative=True)
+        if INDOOR_SCENE["enabled"]:
+            self._create_ceiling_lights()
     
     def _create_ground(self):
         self.ground = Entity(
@@ -21,6 +25,48 @@ class Court:
             texture_scale=(20, 20)
         )
         self.entities.append(self.ground)
+
+    def _indoor_bounds(self):
+        if DECORATIVE_COURTS["enabled"]:
+            side_offset = COURT_W + DECORATIVE_COURTS["side_gap"]
+            half_width = side_offset + HALF_W + INDOOR_SCENE["margin_width"]
+        else:
+            half_width = HALF_W + INDOOR_SCENE["margin_width"]
+        half_depth = HALF_LEN + INDOOR_SCENE["margin_depth"]
+        return half_width, half_depth
+
+    def _create_indoor_shell(self):
+        half_width, half_depth = self._indoor_bounds()
+        wall_height = INDOOR_SCENE["wall_height"]
+        wall_thickness = INDOOR_SCENE["wall_thickness"]
+        roof_thickness = INDOOR_SCENE["roof_thickness"]
+        wall_color = color.rgba(*INDOOR_SCENE["wall_color_rgba"])
+        roof_color = color.rgba(*INDOOR_SCENE["roof_color_rgba"])
+
+        parts = [
+            ((wall_thickness, wall_height, half_depth * 2), (-half_width, wall_height / 2, 0), wall_color),
+            ((wall_thickness, wall_height, half_depth * 2), (half_width, wall_height / 2, 0), wall_color),
+            ((half_width * 2, wall_height, wall_thickness), (0, wall_height / 2, -half_depth), wall_color),
+            ((half_width * 2, wall_height, wall_thickness), (0, wall_height / 2, half_depth), wall_color),
+            ((half_width * 2, roof_thickness, half_depth * 2), (0, wall_height, 0), roof_color),
+        ]
+
+        for scale, position, part_color in parts:
+            self.entities.append(Entity(model='cube', scale=scale, position=position, color=part_color))
+
+    def _create_ceiling_lights(self):
+        half_width, _half_depth = self._indoor_bounds()
+        light_y = INDOOR_SCENE["wall_height"] - INDOOR_SCENE["light_height_offset"]
+        light_color = color.rgba(*INDOOR_SCENE["light_color"])
+        for z_pos in INDOOR_SCENE["light_positions_z"]:
+            light = PointLight(position=(0, light_y, z_pos), color=light_color)
+            fixture = Entity(
+                model='cube',
+                color=color.rgba(1.0, 0.96, 0.78, 1.0),
+                scale=(min(half_width * 0.45, 5.0), 0.04, 0.16),
+                position=(0, light_y - 0.05, z_pos),
+            )
+            self.entities.extend([light, fixture])
     
     def _create_play_area(self, x_offset=0.0, decorative=False):
         self._create_court(x_offset=x_offset, decorative=decorative)

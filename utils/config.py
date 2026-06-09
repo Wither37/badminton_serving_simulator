@@ -50,6 +50,20 @@ DECORATIVE_COURTS = {
     "side_gap": 5.0,
 }
 
+INDOOR_SCENE = {
+    "enabled": True,
+    "margin_width": 6.0,
+    "margin_depth": 6.0,
+    "wall_height": 15.0,
+    "wall_thickness": 0.20,
+    "roof_thickness": 0.18,
+    "wall_color_rgba": (34 / 255, 139 / 255 , 34 / 255, 1.00),
+    "roof_color_rgba": (0.58, 0.60, 0.56, 1.00),
+    "light_color": (1.0, 0.96, 0.86, 1.0),
+    "light_height_offset": 0.35,
+    "light_positions_z": (-4.5, 0.0, 4.5),
+}
+
 SERVE_VISUAL = {
     "max_active_balls": 3,
     "trail_clear_delay": 0.20,
@@ -100,6 +114,29 @@ PHYSICS = {
     "drag_k": DRAG_K,
     "release_height": RELEASE_HEIGHT,
     "trail_interval": TRAIL_INTERVAL,
+}
+
+TRAIL_DENSITY_INTERVALS = {
+    1: 0.05,
+    2: 0.03,
+    3: 0.02,
+    4: 0.01,
+    5: 0.005,
+}
+
+TRAJECTORY_VISUAL = {
+    "serve": {
+        "visible": True,
+        "color": "#facc15",
+        "size": 0.10,
+        "density": 4,
+    },
+    "return": {
+        "visible": True,
+        "color": "#f97316",
+        "size": 0.10,
+        "density": 3,
+    },
 }
 
 # ----- 3) Return Behavior -----
@@ -200,7 +237,7 @@ RETURN_TARGET_PRESETS = {
 }
 
 RETURN_RUNTIME = {
-    "precompute_serve_warmup": 0.50,
+    "precompute_serve_warmup": 1.00,
     "precompute_cache_max": 128,
 }
 RETURN_PLAYER = {

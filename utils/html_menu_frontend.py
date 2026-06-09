@@ -53,6 +53,11 @@ HTML_PAGE = r"""<!doctype html>
       padding: 14px;
       min-height: 120px;
     }
+    section:has(details:not([open])) {
+      min-height: 0;
+      padding-top: 10px;
+      padding-bottom: 10px;
+    }
     h2 { margin: 0 0 12px; font-size: 16px; }
     label {
       display: block;
@@ -93,17 +98,53 @@ HTML_PAGE = r"""<!doctype html>
       display: grid;
       gap: 8px;
       margin-top: 8px;
+      max-height: calc(3 * 52px + 2 * 8px);
+      overflow-y: auto;
+      padding-right: 2px;
     }
     .item {
+      height: 52px;
       padding: 9px 10px;
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #fbfcff;
       cursor: pointer;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
     }
     .item.selected { border-color: var(--blue); background: #eff6ff; }
-    .title { font-weight: 650; }
-    .meta { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .item-main {
+      min-width: 0;
+    }
+    .item-actions {
+      display: flex;
+      gap: 6px;
+    }
+    button.icon {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .title {
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .status {
       color: var(--muted);
       font-size: 13px;
@@ -113,6 +154,78 @@ HTML_PAGE = r"""<!doctype html>
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 12px;
+    }
+    .control-block {
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      margin-top: 12px;
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .control-row label {
+      margin: 0;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--blue);
+    }
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+    }
+    input[type="color"] {
+      width: 44px;
+      height: 34px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+    .range-row {
+      display: grid;
+      grid-template-columns: 1fr 44px;
+      align-items: center;
+      gap: 10px;
+    }
+    .value {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .shot-log {
+      margin-top: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      padding-right: 2px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcff;
+      padding: 9px 10px;
+      color: var(--muted);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    details > summary {
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 650;
+      list-style-position: inside;
+    }
+    details > summary h2 {
+      display: inline;
+      margin: 0;
+    }
+    details[open] > summary {
+      margin-bottom: 12px;
     }
     @media (max-width: 900px) {
       main { grid-template-columns: 1fr; }
@@ -126,50 +239,128 @@ HTML_PAGE = r"""<!doctype html>
   </header>
   <main>
     <section>
-      <h2>Menus in menus.json</h2>
-      <div class="menu-list" id="menus"></div>
-    </section>
-    <section>
-      <h2>Execution Queue</h2>
-      <div class="queue-list" id="queue"></div>
-      <div class="actions">
-        <button id="clear-queue">Clear Queue</button>
-      </div>
-    </section>
-    <section>
-      <h2>Selected Menu</h2>
-      <div id="selected-meta" class="meta">No menu selected</div>
-      <div class="actions">
-        <button class="primary" id="enqueue">Queue Selected</button>
-        <button class="danger" id="delete">Delete Selected</button>
-        <button id="reload">Reload menus.json</button>
-      </div>
-    </section>
-    <section>
-      <h2>Return Strategy</h2>
-      <div class="grid">
-        <div>
-          <label for="scope">Scope</label>
-          <select id="scope"></select>
+      <details data-block="menus">
+        <summary><h2>Menus in menus.json</h2></summary>
+        <div class="menu-list" id="menus"></div>
+        <div class="actions">
+          <button id="reload">Reload menus.json</button>
         </div>
-        <div>
-          <label for="profile">Shot Type</label>
-          <select id="profile"></select>
+      </details>
+    </section>
+    <section>
+      <details data-block="queue">
+        <summary><h2>Execution Queue</h2></summary>
+        <div class="queue-list" id="queue"></div>
+        <div class="actions">
+          <button id="clear-queue">Clear Queue</button>
         </div>
-      </div>
-      <label for="target">Target</label>
-      <select id="target"></select>
-      <div class="actions">
-        <button class="primary" id="save-policy">Save Return Strategy</button>
-      </div>
+      </details>
+    </section>
+    <section>
+      <details data-block="shotLog">
+        <summary><h2>Shot Log</h2></summary>
+        <div class="shot-log" id="shot-log"></div>
+      </details>
+    </section>
+    <section>
+      <details data-block="returnStrategy">
+        <summary><h2>Return Strategy</h2></summary>
+        <div class="grid">
+          <div>
+            <label for="scope">Scope</label>
+            <select id="scope"></select>
+          </div>
+          <div>
+            <label for="profile">Shot Type</label>
+            <select id="profile"></select>
+          </div>
+        </div>
+        <label for="target">Target</label>
+        <select id="target"></select>
+        <div class="actions">
+          <button class="primary" id="save-policy">Save Return Strategy</button>
+        </div>
+      </details>
+    </section>
+    <section>
+      <details data-block="simulatorControls">
+        <summary><h2>Simulator Controls</h2></summary>
+        <div class="grid">
+          <div>
+            <label for="view-mode">View Mode</label>
+            <select id="view-mode"></select>
+          </div>
+          <div>
+            <label>Dynamic Returns</label>
+            <button id="returns-toggle">Off</button>
+          </div>
+        </div>
+
+        <div class="control-block">
+          <h2>Serve Trajectory</h2>
+          <div class="control-row">
+            <label for="serve-traj-visible">Visible</label>
+            <input id="serve-traj-visible" type="checkbox" />
+          </div>
+          <label for="serve-traj-size">Size</label>
+          <div class="range-row">
+            <input id="serve-traj-size" type="range" min="0.02" max="0.30" step="0.01" />
+            <div class="value" id="serve-traj-size-value"></div>
+          </div>
+          <label for="serve-traj-density">Density</label>
+          <div class="range-row">
+            <input id="serve-traj-density" type="range" min="1" max="5" step="1" />
+            <div class="value" id="serve-traj-density-value"></div>
+          </div>
+          <div class="control-row">
+            <label for="serve-traj-color">Color</label>
+            <input id="serve-traj-color" type="color" />
+          </div>
+        </div>
+
+        <div class="control-block">
+          <h2>Return Trajectory</h2>
+          <div class="control-row">
+            <label for="return-traj-visible">Visible</label>
+            <input id="return-traj-visible" type="checkbox" />
+          </div>
+          <label for="return-traj-size">Size</label>
+          <div class="range-row">
+            <input id="return-traj-size" type="range" min="0.02" max="0.30" step="0.01" />
+            <div class="value" id="return-traj-size-value"></div>
+          </div>
+          <label for="return-traj-density">Density</label>
+          <div class="range-row">
+            <input id="return-traj-density" type="range" min="1" max="5" step="1" />
+            <div class="value" id="return-traj-density-value"></div>
+          </div>
+          <div class="control-row">
+            <label for="return-traj-color">Color</label>
+            <input id="return-traj-color" type="color" />
+          </div>
+        </div>
+      </details>
     </section>
   </main>
   <script>
     let state = null;
     let selectedMenuId = null;
     let formDirty = false;
+    const BLOCK_DEFAULT_OPEN = {
+      menus: true,
+      queue: true,
+      shotLog: false,
+      returnStrategy: false,
+      simulatorControls: false
+    };
 
     const $ = (id) => document.getElementById(id);
+
+    function applyBlockDefaults() {
+      document.querySelectorAll('[data-block]').forEach(el => {
+        el.open = BLOCK_DEFAULT_OPEN[el.dataset.block] !== false;
+      });
+    }
 
     async function api(path, body) {
       const options = body ? {
@@ -221,8 +412,14 @@ HTML_PAGE = r"""<!doctype html>
       $('status').textContent = state.status || `Loaded ${state.menus.length} menus`;
       $('menus').innerHTML = state.menus.map((m) => `
         <div class="item ${m.id === selectedMenuId ? 'selected' : ''}" data-menu-id="${m.id}">
-          <div class="title">${m.menuName}</div>
-          <div class="meta">${m.id} | ${m.drill_count} drills</div>
+          <div class="item-main">
+            <div class="title">${m.menuName}</div>
+            <div class="meta">${m.id} | ${m.drill_count} drills</div>
+          </div>
+          <div class="item-actions">
+            <button class="icon primary" data-enqueue-menu-id="${m.id}" title="Add to queue">+</button>
+            <button class="icon danger" data-delete-menu-id="${m.id}" title="Delete from menus.json">&#128465;</button>
+          </div>
         </div>
       `).join('') || '<div class="meta">No menus in menus.json</div>';
 
@@ -233,23 +430,45 @@ HTML_PAGE = r"""<!doctype html>
           render();
         };
       });
+      document.querySelectorAll('[data-enqueue-menu-id]').forEach(el => {
+        el.onclick = (event) => {
+          event.stopPropagation();
+          command('enqueue', {menu_id: el.dataset.enqueueMenuId});
+        };
+      });
+      document.querySelectorAll('[data-delete-menu-id]').forEach(el => {
+        el.onclick = (event) => {
+          event.stopPropagation();
+          command('delete', {menu_id: el.dataset.deleteMenuId});
+        };
+      });
 
       $('queue').innerHTML = state.queue.length ? state.queue.map((q, i) => `
         <div class="item">
-          <div class="title">${i + 1}. ${q.menuName || q.id}</div>
-          <div class="meta">${q.id}</div>
+          <div class="item-main">
+            <div class="title">${i + 1}. ${q.menuName || q.id}</div>
+            <div class="meta">${q.id}</div>
+          </div>
+          <div class="item-actions">
+            <button class="icon danger" data-remove-queue-index="${i}" title="Remove from queue">&#128465;</button>
+          </div>
         </div>
       `).join('') : '<div class="meta">Queue is empty</div>';
+      document.querySelectorAll('[data-remove-queue-index]').forEach(el => {
+        el.onclick = () => command('remove_queue_item', {queue_index: Number(el.dataset.removeQueueIndex)});
+      });
+
+      $('shot-log').textContent = (state.shot_log || []).length
+        ? state.shot_log.map(entry => `${entry.title}: ${entry.detail}`).join('\n')
+        : 'Shot log is empty';
 
       if (!menu) {
-        $('selected-meta').textContent = 'No menu selected';
         $('scope').innerHTML = '';
         $('profile').innerHTML = '';
         $('target').innerHTML = '';
         return;
       }
 
-      $('selected-meta').textContent = `${menu.menuName} | ${menu.id} | ${menu.drill_count} drills`;
       const scope = useDraft ? draftScope : ($('scope').value || 'default');
       const normalizedScope = scope === 'default' || Number(scope) < menu.drill_count ? scope : 'default';
       $('scope').innerHTML = [
@@ -277,9 +496,38 @@ HTML_PAGE = r"""<!doctype html>
       if (match) $('target').value = match;
     }
 
+    function renderSimulatorControls() {
+      const controls = state.simulator_controls || {};
+      const serve = controls.serve_trajectory || {};
+      const ret = controls.return_trajectory || {};
+
+      $('view-mode').innerHTML = (controls.view_modes || []).map(mode => (
+        `<option value="${mode.value}" ${mode.enabled ? '' : 'disabled'}>${mode.label}</option>`
+      )).join('');
+      $('view-mode').value = String(controls.view_mode ?? 0);
+
+      $('returns-toggle').textContent = controls.dynamic_returns ? 'On' : 'Off';
+      $('returns-toggle').className = controls.dynamic_returns ? 'good' : '';
+
+      $('serve-traj-visible').checked = serve.visible !== false;
+      $('serve-traj-size').value = Number(serve.size ?? 0.10).toFixed(2);
+      $('serve-traj-size-value').textContent = Number(serve.size ?? 0.10).toFixed(2);
+      $('serve-traj-density').value = String(serve.density ?? 4);
+      $('serve-traj-density-value').textContent = String(serve.density ?? 4);
+      $('serve-traj-color').value = serve.color || '#facc15';
+
+      $('return-traj-visible').checked = ret.visible !== false;
+      $('return-traj-size').value = Number(ret.size ?? 0.10).toFixed(2);
+      $('return-traj-size-value').textContent = Number(ret.size ?? 0.10).toFixed(2);
+      $('return-traj-density').value = String(ret.density ?? 3);
+      $('return-traj-density-value').textContent = String(ret.density ?? 3);
+      $('return-traj-color').value = ret.color || '#f97316';
+    }
+
     async function refresh(preserveDraft=false) {
       state = await api('/api/state');
       render(preserveDraft);
+      renderSimulatorControls();
     }
 
     async function command(action, payload={}) {
@@ -304,8 +552,6 @@ HTML_PAGE = r"""<!doctype html>
       formDirty = false;
       refresh();
     };
-    $('enqueue').onclick = () => selectedMenuId && command('enqueue', {menu_id: selectedMenuId});
-    $('delete').onclick = () => selectedMenuId && command('delete', {menu_id: selectedMenuId});
     $('clear-queue').onclick = () => command('clear_queue');
     $('save-policy').onclick = () => selectedMenuId && command('set_policy', {
       menu_id: selectedMenuId,
@@ -313,7 +559,35 @@ HTML_PAGE = r"""<!doctype html>
       profile: $('profile').value,
       target_label: $('target').value
     });
+    $('view-mode').onchange = () => command('set_view_mode', {view_mode: Number($('view-mode').value)});
+    $('returns-toggle').onclick = () => command('toggle_returns');
 
+    function sendTrajectoryConfig(target) {
+      $(`${target}-traj-size-value`).textContent = Number($(`${target}-traj-size`).value).toFixed(2);
+      $(`${target}-traj-density-value`).textContent = $(`${target}-traj-density`).value;
+      command('set_trajectory_config', {
+        target,
+        visible: $(`${target}-traj-visible`).checked,
+        size: Number($(`${target}-traj-size`).value),
+        density: Number($(`${target}-traj-density`).value),
+        color: $(`${target}-traj-color`).value
+      });
+    }
+
+    ['serve', 'return'].forEach(target => {
+      $(`${target}-traj-visible`).onchange = () => sendTrajectoryConfig(target);
+      $(`${target}-traj-size`).oninput = () => {
+        $(`${target}-traj-size-value`).textContent = Number($(`${target}-traj-size`).value).toFixed(2);
+      };
+      $(`${target}-traj-size`).onchange = () => sendTrajectoryConfig(target);
+      $(`${target}-traj-density`).oninput = () => {
+        $(`${target}-traj-density-value`).textContent = $(`${target}-traj-density`).value;
+      };
+      $(`${target}-traj-density`).onchange = () => sendTrajectoryConfig(target);
+      $(`${target}-traj-color`).onchange = () => sendTrajectoryConfig(target);
+    });
+
+    applyBlockDefaults();
     refresh();
     setInterval(() => refresh(true), 1500);
   </script>

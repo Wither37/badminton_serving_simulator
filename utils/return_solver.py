@@ -9,6 +9,31 @@ from utils.config import *
 from utils.physics import simulate_trajectory, solve_return_to_target
 
 
+def _hex_to_ursina_color(hex_color, fallback):
+    if not isinstance(hex_color, str):
+        return fallback
+    raw = hex_color.strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    if len(raw) != 6:
+        return fallback
+    try:
+        r = int(raw[0:2], 16)
+        g = int(raw[2:4], 16)
+        b = int(raw[4:6], 16)
+    except ValueError:
+        return fallback
+    return color.rgb(r / 255.0, g / 255.0, b / 255.0)
+
+
+def _trail_interval_for_density(density, fallback_density=3):
+    try:
+        density_key = int(density)
+    except (TypeError, ValueError):
+        density_key = fallback_density
+    return TRAIL_DENSITY_INTERVALS.get(density_key, TRAIL_DENSITY_INTERVALS[fallback_density])
+
+
 def _trajectory_point_to_world(point):
     return Vec3(point[1], point[2], point[0])
 
@@ -725,12 +750,8 @@ class ReturnSolver:
         plan["state"] = "launched"
 
         target = plan["target"]
-        info = (
-            f"Return {sol['profile']} | "
-            f"to x={target['x']:.2f}, y={target['y']:.2f} | "
-            f"speed={sol['speed']:.1f}, pitch={sol['pitch_deg']:.1f}"
-        )
-        self.ui.update_return_info(info)
+        if hasattr(self.game_state, "record_return_log"):
+            self.game_state.record_return_log(getattr(ball, "log_index", None), sol, target)
 
         # Planner handoff: after launch, free active slot so next return plan can be scheduled.
         self._active_plan = None
@@ -782,12 +803,19 @@ class ReturnSolver:
                         entity.position = (y, z, x)
                         _orient_return_entity_to_tangent(entity, _trajectory_point_to_world(next_pos))
 
-                        anim["trail_timer"] += time.dt
-                        if anim["trail_timer"] >= RETURN_ANIMATION["trail_interval"]:
-                            trail = Entity(model="sphere", scale=0.1, color=color.orange, position=entity.position)
-                            anim["trails"].append(trail)
-                            self.game_state.return_trails.append(trail)
-                            anim["trail_timer"] -= RETURN_ANIMATION["trail_interval"]
+                        if getattr(self.game_state, "return_trajectory_visible", True):
+                            anim["trail_timer"] += time.dt
+                            trail_interval = _trail_interval_for_density(getattr(self.game_state, "return_trail_density", 3), 3)
+                            if anim["trail_timer"] >= trail_interval:
+                                trail = Entity(
+                                    model="sphere",
+                                    scale=getattr(self.game_state, "return_trail_size", 0.1),
+                                    color=_hex_to_ursina_color(getattr(self.game_state, "return_trail_color", "#f97316"), color.orange),
+                                    position=entity.position,
+                                )
+                                anim["trails"].append(trail)
+                                self.game_state.return_trails.append(trail)
+                                anim["trail_timer"] -= trail_interval
                         advanced = True
                         break
 

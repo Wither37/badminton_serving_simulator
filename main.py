@@ -32,7 +32,15 @@ class GameState:
         self.current_yaw = 3.0
         self.current_pitch = 22.0
         
-        self.show_trajectory = True
+        self.serve_trajectory_visible = TRAJECTORY_VISUAL["serve"]["visible"]
+        self.return_trajectory_visible = TRAJECTORY_VISUAL["return"]["visible"]
+        self.serve_trail_size = TRAJECTORY_VISUAL["serve"]["size"]
+        self.return_trail_size = TRAJECTORY_VISUAL["return"]["size"]
+        self.serve_trail_color = TRAJECTORY_VISUAL["serve"]["color"]
+        self.return_trail_color = TRAJECTORY_VISUAL["return"]["color"]
+        self.serve_trail_density = TRAJECTORY_VISUAL["serve"]["density"]
+        self.return_trail_density = TRAJECTORY_VISUAL["return"]["density"]
+        self.show_trajectory = self.serve_trajectory_visible and self.return_trajectory_visible
         self.is_player_view = 0
         self.serve_mode = 0             # 0=auto, 1=manual
         self.menu_execution_queue = []  # queued menu ids to run in manual mode
@@ -57,6 +65,114 @@ class GameState:
         self.wait_for_player_home = False
         self.frontend_status = ""
         self.html_frontend_url = ""
+        self.shot_log = []
+        self.next_shot_log_index = 1
+
+    def allocate_shot_log_index(self):
+        log_index = self.next_shot_log_index
+        self.next_shot_log_index += 1
+        return log_index
+
+    def clear_shot_log(self):
+        self.shot_log.clear()
+        self.next_shot_log_index = 1
+
+    def _replace_shot_log_entry(self, entry):
+        self.shot_log = [
+            item for item in self.shot_log
+            if not (item.get("index") == entry.get("index") and item.get("type") == entry.get("type"))
+        ]
+        self.shot_log.append(entry)
+
+    def record_serve_log(self, log_index, landing, params):
+        if log_index is None:
+            return
+        self._replace_shot_log_entry({
+            "index": log_index,
+            "type": "serve",
+            "title": f"Serve {log_index}",
+            "detail": (
+                f"Landing x={landing[0]:.2f}, y={landing[1]:.2f} | "
+                f"speed={params[0]:.1f}, yaw={params[1]:.1f}, pitch={params[2]:.1f}"
+            ),
+        })
+
+    def record_return_log(self, log_index, solution, target):
+        if log_index is None or not isinstance(solution, dict):
+            return
+        target = target or {}
+        self._replace_shot_log_entry({
+            "index": log_index,
+            "type": "return",
+            "title": f"Return {log_index}",
+            "detail": (
+                f"{solution.get('profile', 'return')} to x={float(target.get('x', 0.0)):.2f}, y={float(target.get('y', 0.0)):.2f} | "
+                f"speed={float(solution.get('speed', 0.0)):.1f}, "
+                f"yaw={float(solution.get('yaw_deg', 0.0)):.1f}, "
+                f"pitch={float(solution.get('pitch_deg', 0.0)):.1f}"
+            ),
+        })
+
+    def frontend_shot_log(self):
+        type_order = {"serve": 0, "return": 1}
+        return sorted(self.shot_log, key=lambda item: (item.get("index", 0), type_order.get(item.get("type"), 99)))
+
+
+VIEW_MODE_LABELS = ["Free", "Serve Machine", "Player", "Return Cam"]
+
+
+def sync_legacy_trajectory_flag():
+    state.show_trajectory = state.serve_trajectory_visible and state.return_trajectory_visible
+
+
+def _clamp_trail_size(value, fallback):
+    try:
+        return max(0.02, min(0.30, float(value)))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _clamp_trail_density(value, fallback):
+    try:
+        density = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(1, min(5, density))
+
+
+def _normalize_hex_color(value, fallback):
+    if not isinstance(value, str):
+        return fallback
+    raw = value.strip()
+    if raw.startswith("#"):
+        raw = raw[1:]
+    if len(raw) != 6:
+        return fallback
+    try:
+        int(raw, 16)
+    except ValueError:
+        return fallback
+    return f"#{raw.lower()}"
+
+
+def update_runtime_ui(status=None):
+    sync_legacy_trajectory_flag()
+    update_simulator_hud()
+    refresh_frontend(status=status)
+
+
+def menu_activity_status():
+    if state.precompute_in_progress:
+        return "Calculating"
+    if state.manual_menu_running:
+        return "Executing"
+    return "Idle"
+
+
+def update_simulator_hud():
+    ui.menu_status = menu_activity_status()
+    ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
+                          state.menu_delete_mode, state.show_returns)
 
 
 def apply_view_mode():
@@ -145,6 +261,7 @@ def _serve_machine_camera_position(start_x=None, start_y=None, start_z=None):
 def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.0, start_z=RELEASE_HEIGHT, precomputed_return=None, allow_runtime_return_solve=True, return_policy=None):
     _set_serve_machine_marker_from_physics_start(start_x, start_y, start_z)
     ball = BallFlight(speed_mps, yaw_deg, pitch_deg, ui, simulator, state, interval, start_x, start_y, start_z)
+    ball.log_index = state.allocate_shot_log_index()
     state.active_balls.append(ball)
     solver.register_ball(
         ball,
@@ -163,10 +280,6 @@ def create_ball(speed_mps, yaw_deg, pitch_deg, interval, start_x=0.0, start_y=0.
         if oldest.finished:
             if state.landing_markers:
                 destroy(state.landing_markers.pop(0))
-            if ui.landings:
-                ui.landings.pop(0)
-                ui.update_landing_text()
-
 
 def clear_serve_queue():
     while not serve_queue.empty():
@@ -197,8 +310,7 @@ def reset_before_menu_execution():
         destroy(e)
     state.landing_markers.clear()
 
-    ui.landings.clear()
-    ui.update_landing_text()
+    state.clear_shot_log()
 
     state.latest_landed_ball = None
     state.serve_timer = 0.0
@@ -361,6 +473,7 @@ def get_html_frontend_state():
         menu_items.append(item)
 
     menu_name_by_id = {m["id"]: m["menuName"] for m in menu_items}
+    max_view = _max_view_mode()
     return {
         "menus": menu_items,
         "queue": [
@@ -370,8 +483,71 @@ def get_html_frontend_state():
         "targets": RETURN_TARGET_PRESETS,
         "manual_menu_running": state.manual_menu_running,
         "precompute_in_progress": state.precompute_in_progress,
+        "shot_log": state.frontend_shot_log(),
+        "simulator_controls": {
+            "view_mode": state.is_player_view,
+            "view_modes": [
+                {"value": i, "label": label, "enabled": i <= max_view}
+                for i, label in enumerate(VIEW_MODE_LABELS)
+            ],
+            "max_view_mode": max_view,
+            "dynamic_returns": state.show_returns,
+            "serve_trajectory": {
+                "visible": state.serve_trajectory_visible,
+                "size": state.serve_trail_size,
+                "color": state.serve_trail_color,
+                "density": state.serve_trail_density,
+            },
+            "return_trajectory": {
+                "visible": state.return_trajectory_visible,
+                "size": state.return_trail_size,
+                "color": state.return_trail_color,
+                "density": state.return_trail_density,
+            },
+        },
         "status": state.frontend_status,
     }
+
+
+def set_frontend_view_mode(view_mode):
+    try:
+        next_view = int(view_mode)
+    except (TypeError, ValueError):
+        state.frontend_status = "Invalid view mode"
+        return
+
+    max_view = _max_view_mode()
+    if next_view < 0 or next_view > max_view:
+        state.frontend_status = "Return cam is available when dynamic returns are on"
+        return
+
+    state.is_player_view = next_view
+    if state.is_player_view == 3:
+        state.return_cam_yaw = camera.rotation_y
+        state.return_cam_pitch = camera.rotation_x
+    apply_view_mode()
+    update_runtime_ui(status=f"View mode: {VIEW_MODE_LABELS[state.is_player_view]}")
+
+
+def set_frontend_trajectory_config(command):
+    target = command.get("target")
+    if target == "serve":
+        state.serve_trajectory_visible = bool(command.get("visible", state.serve_trajectory_visible))
+        state.serve_trail_size = _clamp_trail_size(command.get("size"), state.serve_trail_size)
+        state.serve_trail_color = _normalize_hex_color(command.get("color"), state.serve_trail_color)
+        state.serve_trail_density = _clamp_trail_density(command.get("density"), state.serve_trail_density)
+        update_runtime_ui(status="Serve trajectory settings updated")
+        return
+
+    if target == "return":
+        state.return_trajectory_visible = bool(command.get("visible", state.return_trajectory_visible))
+        state.return_trail_size = _clamp_trail_size(command.get("size"), state.return_trail_size)
+        state.return_trail_color = _normalize_hex_color(command.get("color"), state.return_trail_color)
+        state.return_trail_density = _clamp_trail_density(command.get("density"), state.return_trail_density)
+        update_runtime_ui(status="Return trajectory settings updated")
+        return
+
+    state.frontend_status = "Invalid trajectory target"
 
 
 def process_html_frontend_commands():
@@ -410,6 +586,17 @@ def process_html_frontend_commands():
             clear_serve_queue()
             state.manual_menu_running = False
             state.frontend_status = "Queue cleared"
+        elif action == "remove_queue_item":
+            try:
+                queue_index = int(command.get("queue_index"))
+            except (TypeError, ValueError):
+                state.frontend_status = "Invalid queue item"
+            else:
+                if 0 <= queue_index < len(state.menu_execution_queue):
+                    removed_menu_id = state.menu_execution_queue.pop(queue_index)
+                    state.frontend_status = f"Removed from queue: {removed_menu_id}"
+                else:
+                    state.frontend_status = "Queue item not found"
         elif action == "set_policy":
             html_update_policy(
                 menu_id=menu_id,
@@ -417,6 +604,12 @@ def process_html_frontend_commands():
                 profile=command.get("profile", "clear"),
                 target_label=command.get("target_label", ""),
             )
+        elif action == "set_view_mode":
+            set_frontend_view_mode(command.get("view_mode"))
+        elif action == "toggle_returns":
+            frontend_toggle_returns()
+        elif action == "set_trajectory_config":
+            set_frontend_trajectory_config(command)
         else:
             state.frontend_status = f"Unknown action: {action}"
 
@@ -436,9 +629,7 @@ def frontend_toggle_returns():
         if state.is_player_view > _max_view_mode():
             state.is_player_view = 2
         apply_view_mode()
-    ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                          state.menu_delete_mode, state.show_returns)
-    refresh_frontend(status="Dynamic returns: ON" if state.show_returns else "Dynamic returns: OFF")
+    update_runtime_ui(status="Dynamic returns: ON" if state.show_returns else "Dynamic returns: OFF")
 
 
 def run_next_manual_item():
@@ -499,6 +690,7 @@ def run_next_manual_item():
 def update():
     """主更新迴圈"""
     process_html_frontend_commands()
+    update_simulator_hud()
 
     if state.is_player_view in (1, 2) or (state.is_player_view == 3 and state.show_returns):
         state.return_cam_yaw += mouse.velocity[0] * RETURN_CAMERA["sensitivity"]
@@ -680,8 +872,7 @@ def input(key):
             destroy(e)
         state.landing_markers.clear()
 
-        ui.landings.clear()
-        ui.update_landing_text()
+        state.clear_shot_log()
 
         state.serve_timer = 0.0
         state.serve_interval = 0.5
@@ -700,12 +891,10 @@ def input(key):
                               state.menu_delete_mode, state.show_returns)
 
     if key == 't':
-        state.show_trajectory = not state.show_trajectory
-        for ball in state.active_balls:
-            for e in ball.trail_entities:
-                e.visible = state.show_trajectory
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns)
+        next_visible = not (state.serve_trajectory_visible and state.return_trajectory_visible)
+        state.serve_trajectory_visible = next_visible
+        state.return_trajectory_visible = next_visible
+        update_runtime_ui(status="Trajectories: ON" if next_visible else "Trajectories: OFF")
 
     if key == 'v':
         state.is_player_view = (state.is_player_view + 1) % (_max_view_mode() + 1)
@@ -713,8 +902,7 @@ def input(key):
             state.return_cam_yaw = camera.rotation_y
             state.return_cam_pitch = camera.rotation_x
         apply_view_mode()
-        ui.update_instructions(state.show_trajectory, state.is_player_view, state.serve_mode,
-                      state.menu_delete_mode, state.show_returns)
+        update_runtime_ui(status=f"View mode: {VIEW_MODE_LABELS[state.is_player_view]}")
 
     if key == 'n':
         # Cycle through serve modes: auto -> manual -> auto
@@ -763,7 +951,8 @@ if __name__ == '__main__':
     state = GameState()
 
     # App setup
-    app = Ursina(icon='', size=(2400, 1350))
+    # app = Ursina(icon='', size=(2400, 1350))
+    app = Ursina(icon='', fullscreen=True)
     Entity.default_shader = lit_with_shadows_shader
 
     # Create scene
