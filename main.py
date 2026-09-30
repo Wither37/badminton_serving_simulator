@@ -951,8 +951,8 @@ if __name__ == '__main__':
     state = GameState()
 
     # App setup
-    # app = Ursina(icon='', size=(2400, 1350))
-    app = Ursina(icon='', fullscreen=True)
+    app = Ursina(icon='', size=(2400, 1350))
+    # app = Ursina(icon='', fullscreen=True)
     Entity.default_shader = lit_with_shadows_shader
 
     # Create scene
