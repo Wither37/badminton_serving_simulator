@@ -4,7 +4,7 @@
 
 ## Demo
 
-Demo 影片網址：https://youtu.be/e2MdgkkjO9o
+Demo 影片網址：
 
 <!-- 請將 Demo 影片網址貼在上方。 -->
 
@@ -34,17 +34,17 @@ flowchart LR
     MQTT --> CLIENT[MQTT Client]
     CLIENT --> STORE[(menus.json)]
     CLIENT --> QUEUE[Serve Queue]
+    STORE --> QUEUE
 
     U --> WEB[HTML Menu Frontend]
-    WEB --> STORE
     WEB --> QUEUE
 
-    QUEUE --> MAIN[主程式與 3D 互動控制]
-    MAIN --> PHYSICS[發球物理模擬]
+    U --> MAIN[主程式與 3D 互動控制]
+    QUEUE --> MAIN
     MAIN --> RETURN[ReturnSolver]
-    PHYSICS --> VIEW[3D 球場 / 球路 / 落點]
-    RETURN --> VIEW
-    VIEW --> U
+    MAIN --> VIEW[3D 球場 / 球路 / 落點]
+    RETURN --> PHYSICS[物理軌跡模擬<br/>重力 + 空氣阻力]
+    PHYSICS --> VIEW
 ```
 
 資料流程如下：
